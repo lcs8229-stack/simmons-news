@@ -1,0 +1,74 @@
+name: Update and deploy
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 매시 17분(UTC)에 실행. 정각은 GitHub 서버가 붐벼 지연되기 쉽다.
+    - cron: "17 * * * *"
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - run: pip install -r requirements.txt pytest
+
+      - name: Test
+        run: python -m pytest -q
+
+      # 아카이브(최근 7일 기사)는 git 대신 Actions 캐시에 보관한다.
+      - name: Restore archive
+        uses: actions/cache/restore@v4
+        with:
+          path: data/archive.json
+          key: archive-${{ github.run_id }}
+          restore-keys: archive-
+
+      - name: Build news data
+        run: python scripts/build_news.py --sources feeds/sources.opml --output-dir data
+
+      - name: Save archive
+        uses: actions/cache/save@v4
+        with:
+          path: data/archive.json
+          key: archive-${{ github.run_id }}
+
+      - name: Assemble site
+        run: |
+          mkdir -p _site/data
+          cp index.html manifest.json _site/
+          cp -r assets _site/
+          cp data/news.json data/status.json _site/data/
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
