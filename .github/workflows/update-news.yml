@@ -17,6 +17,10 @@ concurrency:
   group: pages
   cancel-in-progress: false
 
+env:
+  # 배포된 페이지 주소. 캐시가 사라졌을 때 소스 이력과 품질 기준값을 여기서 복구한다.
+  SITE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -35,7 +39,9 @@ jobs:
       - name: Test
         run: python -m pytest -q
 
-      # 아카이브(최근 7일 기사)는 git 대신 Actions 캐시에 보관한다.
+      # 아카이브(기사 기록)와 소스 이력은 git 대신 Actions 캐시에 보관한다.
+      # 캐시가 없으면(7일 미사용 삭제 등) 새로 수집해 복구한다. docs/OPERATIONS.md 참고.
+      # 캐시는 저장 경로 목록이 바뀌면 이전 것을 못 찾으므로, 아카이브와 이력을 따로 둔다.
       - name: Restore archive
         uses: actions/cache/restore@v4
         with:
@@ -43,25 +49,60 @@ jobs:
           key: archive-${{ github.run_id }}
           restore-keys: archive-
 
+      - name: Restore source history and quality baseline
+        uses: actions/cache/restore@v4
+        with:
+          path: data/state
+          key: state-${{ github.run_id }}
+          restore-keys: state-
+
       - name: Build news data
+        id: build
         run: python scripts/build_news.py --sources feeds/sources.opml --output-dir data
 
+      # 실패하면(종료 코드 1) 아래 배포 단계가 모두 건너뛰어지고 기존 페이지가 유지된다.
+      - name: Quality gate
+        id: gate
+        run: python scripts/quality_gate.py --data-dir data
+
+      # 품질 검사가 실패해도 아카이브·이력(연속 실패 횟수 등)은 저장한다.
       - name: Save archive
+        if: always() && steps.build.outcome == 'success'
         uses: actions/cache/save@v4
         with:
           path: data/archive.json
           key: archive-${{ github.run_id }}
+
+      - name: Save source history and quality baseline
+        if: always() && steps.build.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: data/state
+          key: state-${{ github.run_id }}
 
       - name: Assemble site
         run: |
           mkdir -p _site/data
           cp index.html manifest.json _site/
           cp -r assets _site/
-          cp data/news.json data/status.json _site/data/
+          cp data/news.json data/status.json data/health.json _site/data/
 
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
+
+      # 선택: 외부 감시 서비스(예: Healthchecks.io)에 성공/실패를 알린다.
+      # 저장소 Settings → Secrets and variables → Actions 에 HEALTHCHECK_URL 을 넣어야 동작한다.
+      # 설정하지 않으면 아무 일도 하지 않는다.
+      - name: Ping external monitor (optional)
+        if: always()
+        env:
+          HEALTHCHECK_URL: ${{ secrets.HEALTHCHECK_URL }}
+          JOB_OK: ${{ job.status == 'success' }}
+        run: |
+          if [ -z "$HEALTHCHECK_URL" ]; then echo "HEALTHCHECK_URL 미설정: 외부 감시 알림 없음"; exit 0; fi
+          if [ "$JOB_OK" = "true" ]; then url="$HEALTHCHECK_URL"; else url="$HEALTHCHECK_URL/fail"; fi
+          curl -fsS -m 10 --retry 3 "$url" > /dev/null || echo "외부 감시 알림 실패"
 
   deploy:
     needs: build

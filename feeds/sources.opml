@@ -16,7 +16,9 @@
               최종 판정은 feeds/outlets.json 의 원언론사 정책과 수집 경로 정책을 함께 본다.
               미확인 언론사·경로는 AI 처리하지 않는다.
     tz        시간대 표기가 없는 시각에 적용할 기준 (기본: kr=Asia/Seoul, intl=UTC)
-    enabled   false 이면 수집하지 않음
+    cadence   발행 주기 frequent | daily | weekly | monthly (기본: news=daily, science=weekly)
+              가장 최근 기사가 config/quality.json 의 cadence_hours 보다 오래되면 '오래됨'으로 판정
+    enabled   false 이면 수집하지 않음 (disabled_reason 에 이유를 적는다)
 
   2026-11-16 접속 확인. 실패/차단된 소스(동아일보, 한국일보, KBS, 동아사이언스,
   사이언스타임즈, Phys.org, New Scientist, NPR)는 넣지 않았다.
@@ -26,9 +28,9 @@
   <head><title>Simmons News sources</title></head>
   <body>
     <outline text="국내">
-      <outline text="연합뉴스 정치" outlet="연합뉴스" region="kr" section="news" category="politics" lean="center" ai="no" xmlUrl="https://www.yna.co.kr/rss/politics.xml"/>
-      <outline text="연합뉴스 경제" outlet="연합뉴스" region="kr" section="news" category="economy" lean="center" ai="no" xmlUrl="https://www.yna.co.kr/rss/economy.xml"/>
-      <outline text="연합뉴스 사회" outlet="연합뉴스" region="kr" section="news" category="society" lean="center" ai="no" xmlUrl="https://www.yna.co.kr/rss/society.xml"/>
+      <outline text="연합뉴스 정치" cadence="frequent" outlet="연합뉴스" region="kr" section="news" category="politics" lean="center" ai="no" xmlUrl="https://www.yna.co.kr/rss/politics.xml"/>
+      <outline text="연합뉴스 경제" cadence="frequent" outlet="연합뉴스" region="kr" section="news" category="economy" lean="center" ai="no" xmlUrl="https://www.yna.co.kr/rss/economy.xml"/>
+      <outline text="연합뉴스 사회" cadence="frequent" outlet="연합뉴스" region="kr" section="news" category="society" lean="center" ai="no" xmlUrl="https://www.yna.co.kr/rss/society.xml"/>
       <outline text="연합뉴스 문화" outlet="연합뉴스" region="kr" section="news" category="culture" lean="center" ai="no" xmlUrl="https://www.yna.co.kr/rss/culture.xml"/>
       <outline text="연합뉴스 국제" outlet="연합뉴스" region="kr" section="news" category="world" lean="center" ai="no" xmlUrl="https://www.yna.co.kr/rss/international.xml"/>
       <outline text="연합뉴스 북한" outlet="연합뉴스" region="kr" section="news" category="northkorea" lean="center" ai="no" xmlUrl="https://www.yna.co.kr/rss/northkorea.xml"/>
@@ -42,8 +44,8 @@
       <outline text="경향신문 정치" outlet="경향신문" region="kr" section="news" category="politics" lean="progressive" xmlUrl="https://www.khan.co.kr/rss/rssdata/politic_news.xml"/>
       <outline text="경향신문 경제" outlet="경향신문" region="kr" section="news" category="economy" lean="progressive" xmlUrl="https://www.khan.co.kr/rss/rssdata/economy_news.xml"/>
       <outline text="경향신문 전체" outlet="경향신문" region="kr" section="news" category="general" lean="progressive" xmlUrl="https://www.khan.co.kr/rss/rssdata/total_news.xml"/>
-      <outline text="한국경제 정치" outlet="한국경제" region="kr" section="news" category="politics" lean="conservative" xmlUrl="https://www.hankyung.com/feed/politics"/>
-      <outline text="한국경제 경제" outlet="한국경제" region="kr" section="news" category="economy" lean="conservative" xmlUrl="https://www.hankyung.com/feed/economy"/>
+      <outline text="한국경제 정치" enabled="false" disabled_reason="2026-11-16 GitHub Actions 와 개발 환경 모두 HTTP 403(접근 거부). 우회하지 않고 중지" outlet="한국경제" region="kr" section="news" category="politics" lean="conservative" xmlUrl="https://www.hankyung.com/feed/politics"/>
+      <outline text="한국경제 경제" enabled="false" disabled_reason="2026-11-16 GitHub Actions 와 개발 환경 모두 HTTP 403(접근 거부). 우회하지 않고 중지" outlet="한국경제" region="kr" section="news" category="economy" lean="conservative" xmlUrl="https://www.hankyung.com/feed/economy"/>
       <outline text="매일경제" outlet="매일경제" region="kr" section="news" category="general" lean="conservative" xmlUrl="https://www.mk.co.kr/rss/30000001/"/>
       <outline text="SBS 정치" outlet="SBS" region="kr" section="news" category="politics" lean="center" xmlUrl="https://news.sbs.co.kr/news/SectionRssFeed.do?sectionId=01"/>
       <outline text="SBS 경제" outlet="SBS" region="kr" section="news" category="economy" lean="center" xmlUrl="https://news.sbs.co.kr/news/SectionRssFeed.do?sectionId=02"/>
@@ -59,7 +61,7 @@
       <outline text="BBC Business" outlet="BBC" region="intl" section="news" category="economy" xmlUrl="https://feeds.bbci.co.uk/news/business/rss.xml"/>
       <outline text="Guardian World" outlet="The Guardian" region="intl" section="news" category="world" xmlUrl="https://www.theguardian.com/world/rss"/>
       <outline text="Guardian Business" outlet="The Guardian" region="intl" section="news" category="economy" xmlUrl="https://www.theguardian.com/business/rss"/>
-      <outline text="Guardian Culture" outlet="The Guardian" region="intl" section="news" category="culture" xmlUrl="https://www.theguardian.com/culture/rss"/>
+      <outline text="Guardian Culture" cadence="daily" outlet="The Guardian" region="intl" section="news" category="culture" xmlUrl="https://www.theguardian.com/culture/rss"/>
       <outline text="NYT World" outlet="New York Times" region="intl" section="news" category="world" xmlUrl="https://rss.nytimes.com/services/xml/rss/nyt/World.xml"/>
       <outline text="NYT Business" outlet="New York Times" region="intl" section="news" category="economy" xmlUrl="https://rss.nytimes.com/services/xml/rss/nyt/Business.xml"/>
       <outline text="Al Jazeera" outlet="Al Jazeera" region="intl" section="news" category="world" xmlUrl="https://www.aljazeera.com/xml/rss/all.xml"/>
@@ -69,23 +71,23 @@
     </outline>
 
     <outline text="과학·전기">
-      <outline text="Nature" outlet="Nature" region="intl" section="science" category="science" xmlUrl="https://www.nature.com/nature.rss"/>
-      <outline text="Science" outlet="Science" region="intl" section="science" category="science" xmlUrl="https://www.science.org/action/showFeed?type=etoc&amp;feed=rss&amp;jc=science"/>
-      <outline text="Science News (AAAS)" outlet="Science" region="intl" section="science" category="science" xmlUrl="https://www.science.org/rss/news_current.xml"/>
-      <outline text="Cell" outlet="Cell" region="intl" section="science" category="science" xmlUrl="https://www.cell.com/cell/current.rss"/>
-      <outline text="PNAS" outlet="PNAS" region="intl" section="science" category="science" xmlUrl="https://www.pnas.org/action/showFeed?type=etoc&amp;feed=rss&amp;jc=pnas"/>
-      <outline text="Quanta Magazine" outlet="Quanta" region="intl" section="science" category="science" xmlUrl="https://www.quantamagazine.org/feed/"/>
-      <outline text="ScienceDaily" outlet="ScienceDaily" region="intl" section="science" category="science" xmlUrl="https://www.sciencedaily.com/rss/top/science.xml"/>
-      <outline text="IEEE Spectrum" outlet="IEEE Spectrum" region="intl" section="science" category="energy" xmlUrl="https://spectrum.ieee.org/feeds/feed.rss"/>
-      <outline text="IEEE Spectrum Energy" outlet="IEEE Spectrum" region="intl" section="science" category="energy" xmlUrl="https://spectrum.ieee.org/feeds/topic/energy.rss"/>
-      <outline text="Nature Energy" outlet="Nature Energy" region="intl" section="science" category="energy" xmlUrl="https://www.nature.com/nenergy.rss"/>
-      <outline text="Nature Electronics" outlet="Nature Electronics" region="intl" section="science" category="energy" xmlUrl="https://www.nature.com/natelectron.rss"/>
-      <outline text="Electrek" outlet="Electrek" region="intl" section="science" category="energy" xmlUrl="https://electrek.co/feed/"/>
-      <outline text="Utility Dive" outlet="Utility Dive" region="intl" section="science" category="energy" xmlUrl="https://www.utilitydive.com/feeds/news/"/>
-      <outline text="전기신문" outlet="전기신문" region="kr" section="science" category="energy" xmlUrl="https://www.electimes.com/rss/allArticle.xml"/>
-      <outline text="에너지신문" outlet="에너지신문" region="kr" section="science" category="energy" xmlUrl="https://www.energy-news.co.kr/rss/allArticle.xml"/>
-      <outline text="일렉트릭파워" outlet="일렉트릭파워" region="kr" section="science" category="energy" xmlUrl="https://www.epj.co.kr/rss/allArticle.xml"/>
-      <outline text="전기저널 (대한전기협회)" outlet="전기저널" region="kr" section="science" category="energy" xmlUrl="https://www.keaj.kr/rss/allArticle.xml"/>
+      <outline text="Nature" cadence="weekly" outlet="Nature" region="intl" section="science" category="science" xmlUrl="https://www.nature.com/nature.rss"/>
+      <outline text="Science" cadence="weekly" outlet="Science" region="intl" section="science" category="science" xmlUrl="https://www.science.org/action/showFeed?type=etoc&amp;feed=rss&amp;jc=science"/>
+      <outline text="Science News (AAAS)" cadence="weekly" outlet="Science" region="intl" section="science" category="science" xmlUrl="https://www.science.org/rss/news_current.xml"/>
+      <outline text="Cell" cadence="weekly" outlet="Cell" region="intl" section="science" category="science" xmlUrl="https://www.cell.com/cell/current.rss"/>
+      <outline text="PNAS" cadence="weekly" outlet="PNAS" region="intl" section="science" category="science" xmlUrl="https://www.pnas.org/action/showFeed?type=etoc&amp;feed=rss&amp;jc=pnas"/>
+      <outline text="Quanta Magazine" cadence="weekly" outlet="Quanta" region="intl" section="science" category="science" xmlUrl="https://www.quantamagazine.org/feed/"/>
+      <outline text="ScienceDaily" cadence="daily" outlet="ScienceDaily" region="intl" section="science" category="science" xmlUrl="https://www.sciencedaily.com/rss/top/science.xml"/>
+      <outline text="IEEE Spectrum" cadence="daily" outlet="IEEE Spectrum" region="intl" section="science" category="energy" xmlUrl="https://spectrum.ieee.org/feeds/feed.rss"/>
+      <outline text="IEEE Spectrum Energy" cadence="weekly" outlet="IEEE Spectrum" region="intl" section="science" category="energy" xmlUrl="https://spectrum.ieee.org/feeds/topic/energy.rss"/>
+      <outline text="Nature Energy" cadence="monthly" outlet="Nature Energy" region="intl" section="science" category="energy" xmlUrl="https://www.nature.com/nenergy.rss"/>
+      <outline text="Nature Electronics" cadence="monthly" outlet="Nature Electronics" region="intl" section="science" category="energy" xmlUrl="https://www.nature.com/natelectron.rss"/>
+      <outline text="Electrek" cadence="daily" outlet="Electrek" region="intl" section="science" category="energy" xmlUrl="https://electrek.co/feed/"/>
+      <outline text="Utility Dive" cadence="daily" outlet="Utility Dive" region="intl" section="science" category="energy" xmlUrl="https://www.utilitydive.com/feeds/news/"/>
+      <outline text="전기신문" cadence="daily" outlet="전기신문" region="kr" section="science" category="energy" xmlUrl="https://www.electimes.com/rss/allArticle.xml"/>
+      <outline text="에너지신문" cadence="daily" outlet="에너지신문" region="kr" section="science" category="energy" xmlUrl="https://www.energy-news.co.kr/rss/allArticle.xml"/>
+      <outline text="일렉트릭파워" cadence="daily" outlet="일렉트릭파워" region="kr" section="science" category="energy" xmlUrl="https://www.epj.co.kr/rss/allArticle.xml"/>
+      <outline text="전기저널 (대한전기협회)" cadence="monthly" outlet="전기저널" region="kr" section="science" category="energy" xmlUrl="https://www.keaj.kr/rss/allArticle.xml"/>
       <outline text="IEEE Trans. Power Systems" outlet="IEEE TPWRS" region="intl" section="science" category="energy" enabled="false" xmlUrl="https://ieeexplore.ieee.org/rss/TOC59.XML"/>
       <outline text="IEEE Trans. Power Electronics" outlet="IEEE TPEL" region="intl" section="science" category="energy" enabled="false" xmlUrl="https://ieeexplore.ieee.org/rss/TOC63.XML"/>
     </outline>

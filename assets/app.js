@@ -203,19 +203,85 @@ function render() {
   $("more").hidden = items.length <= state.shown;
 }
 
+// 소스 상태 → 표시 등급. 0건·오래됨을 정상과 같은 색으로 보이지 않게 한다.
+const STATE_TONE = {
+  ok: "ok",
+  undated: "warn",
+  stale: "warn",
+  filtered_all: "bad",
+  empty: "bad",
+  parse_error: "bad",
+  http_error: "bad",
+  disabled: "off",
+};
+
 function renderStatus(status) {
   if (!status) return;
-  const total = status.sources.length;
-  $("statusSummary").textContent = `소스 상태 ${status.ok}/${total} 정상`;
-  const ul = $("statusList");
-  ul.replaceChildren(
-    ...status.sources.map((s) => {
+  const active = status.active ?? status.sources.length;
+  const sum = status.summary || {};
+  const problems = (sum.failed?.length || 0) + (sum.empty?.length || 0);
+  const notes = (sum.stale?.length || 0) + (sum.undated?.length || 0);
+  let text = `소스 상태 ${status.ok}/${active} 정상`;
+  if (problems) text += ` · 문제 ${problems}`;
+  if (notes) text += ` · 주의 ${notes}`;
+  $("statusSummary").textContent = text;
+  const order = { bad: 0, warn: 1, ok: 2, off: 3 };
+  const rows = [...status.sources].sort(
+    (a, b) => order[STATE_TONE[a.state] || "bad"] - order[STATE_TONE[b.state] || "bad"],
+  );
+  $("statusList").replaceChildren(
+    ...rows.map((s) => {
       const li = document.createElement("li");
-      li.className = s.ok ? (s.item_count ? "ok" : "warn") : "bad";
-      li.textContent = `${s.name} — ${s.ok ? `${s.item_count}건` : "실패"}`;
+      const tone = STATE_TONE[s.state] || (s.ok ? "ok" : "bad");
+      li.className = tone;
+      const label = s.state_label || (s.ok ? "정상" : "실패");
+      const n = s.valid_count ?? s.item_count;
+      let detail = s.state === "ok" ? `${n}건` : s.state === "undated" ? `${label} · ${n}건` : label;
+      if (s.state === "stale" && s.newest_at) detail = `${label} (최근 기사 ${timeAgo(s.newest_at)})`;
+      const h = s.history || {};
+      if (tone === "bad" && h.last_success_at) detail += ` · 마지막 정상 ${timeAgo(h.last_success_at)}`;
+      if (h.consecutive_failures > 1) detail += ` · 연속 실패 ${h.consecutive_failures}회`;
+      if (h.consecutive_empty > 1) detail += ` · 연속 0건 ${h.consecutive_empty}회`;
+      li.textContent = `${s.name} — ${detail}`;
       return li;
     }),
   );
+}
+
+function renderHealth(health) {
+  const ul = $("healthNotes");
+  if (!health) return;
+  const items = (health.warnings || []).map((w) => {
+    const li = document.createElement("li");
+    li.textContent = w;
+    return li;
+  });
+  ul.replaceChildren(...items);
+}
+
+// 배포가 멈춰도 페이지가 스스로 알 수 있도록, 데이터 생성 시각과 현재 시각을 비교한다.
+// 이것은 화면 표시일 뿐 알림이 아니다. 알림은 docs/OPERATIONS.md 의 외부 감시 설정이 필요하다.
+function checkStale() {
+  const d = state.data;
+  if (!d) return;
+  const limit = (d.stale_after_minutes || 180) * 60000;
+  const age = Date.now() - new Date(d.generated_at).getTime();
+  const banner = $("staleBanner");
+  if (age > limit) {
+    banner.hidden = false;
+    banner.textContent = `갱신 지연: 마지막 정상 갱신 ${kstTime(d.generated_at)} (${timeAgo(d.generated_at)}). 자동 갱신이 멈췄을 수 있습니다.`;
+    $("updatedAt").classList.add("late");
+  } else {
+    banner.hidden = true;
+    $("updatedAt").classList.remove("late");
+  }
+}
+
+function renderCoverage(d) {
+  const c = d.coverage || {};
+  let text = `마지막 정상 갱신 ${kstTime(d.generated_at)}`;
+  if (c.archive_started_at) text += ` · 기록 보관 시작 ${kstTime(c.archive_started_at)}`;
+  $("lastGood").textContent = text;
 }
 
 async function init() {
@@ -248,6 +314,10 @@ async function init() {
     state.data = await res.json();
     $("updatedAt").textContent = `${kstTime(state.data.generated_at)} 업데이트`;
     render();
+    renderCoverage(state.data);
+    checkStale();
+    // 페이지를 오래 열어 둔 경우에도 지연을 알 수 있게 1분마다 다시 확인
+    setInterval(checkStale, 60000);
   } catch (err) {
     $("updatedAt").textContent = "불러오기 실패";
     $("list").innerHTML = '<li class="empty">뉴스 데이터를 불러오지 못했습니다.</li>';
@@ -257,6 +327,12 @@ async function init() {
     if (res.ok) renderStatus(await res.json());
   } catch (_) {
     /* 상태 정보는 선택 사항 */
+  }
+  try {
+    const res = await fetch(`./data/health.json?t=${Date.now()}`);
+    if (res.ok) renderHealth(await res.json());
+  } catch (_) {
+    /* 품질 검사 정보는 선택 사항 */
   }
 }
 

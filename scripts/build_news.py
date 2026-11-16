@@ -12,6 +12,7 @@ import hashlib
 import html
 import json
 import math
+import os
 import re
 import sys
 import time
@@ -30,6 +31,13 @@ from dateutil import parser as dtparser
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from outlets import PolicyTable, load_policy, recheck  # noqa: E402
+from source_health import (  # noqa: E402
+    DEFAULT_CADENCE_HOURS,
+    GOOD_STATES,
+    STATE_LABELS,
+    update_history,
+)
+from source_health import classify as classify_source  # noqa: E402
 from radar_lib import (  # noqa: E402
     BROWSER_UA,
     TZINFOS,
@@ -86,19 +94,21 @@ JOURNAL_OUTLETS = {
 # ---------------------------------------------------------------- 소스
 
 
-def load_sources(opml_path: Path) -> list[dict[str, str]]:
+def load_sources(opml_path: Path, include_disabled: bool = False) -> list[dict[str, Any]]:
     root = ET.parse(opml_path).getroot()
-    out: list[dict[str, str]] = []
+    out: list[dict[str, Any]] = []
     seen: set[str] = set()
     for node in root.iter("outline"):
         url = (node.attrib.get("xmlUrl") or "").strip()
         if not url or url in seen:
             continue
         seen.add(url)
-        if node.attrib.get("enabled", "true").lower() == "false":
-            continue
         a = node.attrib
+        enabled = a.get("enabled", "true").lower() != "false"
+        if not enabled and not include_disabled:
+            continue
         region = a.get("region", "kr")
+        section = a.get("section", "news")
         gnews = a.get("gnews", "") == "1"
         out.append(
             {
@@ -106,7 +116,7 @@ def load_sources(opml_path: Path) -> list[dict[str, str]]:
                 "url": url,
                 "outlet": a.get("outlet", ""),
                 "region": region,
-                "section": a.get("section", "news"),
+                "section": section,
                 "category": a.get("category", "general"),
                 "lean": a.get("lean", ""),
                 "gnews": gnews,
@@ -114,6 +124,10 @@ def load_sources(opml_path: Path) -> list[dict[str, str]]:
                 # 피드 단위 금지. 원언론사 정책과 별개로 항상 금지 쪽으로만 작용한다.
                 "feed_ai_deny": a.get("ai", "").lower() == "no",
                 "tz": a.get("tz") or DEFAULT_TZ.get(region, "UTC"),
+                # 발행 주기: 오래된 피드 판정 기준 (config/quality.json 의 cadence_hours)
+                "cadence": a.get("cadence") or ("weekly" if section == "science" else "daily"),
+                "enabled": enabled,
+                "disabled_reason": a.get("disabled_reason", ""),
             }
         )
     return out
@@ -204,9 +218,17 @@ def content_hash(title: str, summary: str) -> str:
 
 
 def parse_feed(content: bytes, src: dict[str, Any], now: datetime, table: PolicyTable) -> list[dict[str, Any]]:
-    """피드 본문 → 기사 목록. 원언론사·AI 정책·시간 근거를 기사마다 기록한다."""
+    return parse_feed_detail(content, src, now, table)[0]
+
+
+def parse_feed_detail(
+    content: bytes, src: dict[str, Any], now: datetime, table: PolicyTable
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """피드 본문 → (기사 목록, 파싱 정보). 원언론사·AI 정책·시간 근거를 기사마다 기록한다."""
     parsed = feedparser.parse(content)
     version = getattr(parsed, "version", "") or ""
+    # RSS/Atom 으로 인식되지 않았고 항목도 없으면 파싱 실패 (HTML 오류 페이지 등)
+    meta = {"parse_ok": bool(version) or bool(parsed.entries), "feed_version": version, "entry_count": len(parsed.entries)}
     items: list[dict[str, Any]] = []
     for e in parsed.entries:
         title = clean_text(str(e.get("title", "")), 300)
@@ -250,18 +272,22 @@ def parse_feed(content: bytes, src: dict[str, Any], now: datetime, table: Policy
                 "lean": src["lean"],
             }
         )
-    return items
+    return items, meta
 
 
 def fetch_source(
-    src: dict[str, Any], now: datetime, table: PolicyTable
+    src: dict[str, Any], now: datetime, table: PolicyTable, cadence_hours: dict[str, float] | None = None
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """소스 하나를 가져와 단계별 결과(HTTP → 파싱 → 유효 → 시각 → 최근)를 기록한다."""
     start = time.perf_counter()
     items: list[dict[str, Any]] = []
     error = None
+    http_ok = parse_ok = False
+    http_status = None
+    meta: dict[str, Any] = {"entry_count": 0, "feed_version": ""}
     try:
         resp = None
-        for attempt in range(3):  # 일시적 403/연결 끊김(한국경제·MBC 등) 대비
+        for attempt in range(3):  # 일시적 429/5xx/연결 끊김(MBC 등) 대비
             try:
                 resp = requests.get(
                     src["url"],
@@ -277,28 +303,51 @@ def fetch_source(
                     raise
                 time.sleep(2 + 3 * attempt)
         assert resp is not None
+        http_status = resp.status_code
         resp.raise_for_status()
-        items = parse_feed(resp.content, src, now, table)
+        http_ok = True
+        items, meta = parse_feed_detail(resp.content, src, now, table)
+        parse_ok = meta["parse_ok"]
+        if not parse_ok:
+            error = f"RSS/Atom 아님 (content-type: {resp.headers.get('content-type', '?')})"
     except Exception as exc:  # noqa: BLE001 - 소스 하나 실패가 전체를 멈추면 안 된다
         error = str(exc)[:200]
     basis = Counter(it["time_basis"] for it in items)
+    times = [t for t in (article_time(it) for it in items) if t]
+    newest = max(times) if times else None
+    ch = cadence_hours or DEFAULT_CADENCE_HOURS
+    recent_after = now - timedelta(hours=ch.get(src["cadence"], ch["daily"]))
     status = {
         "name": src["name"],
         "url": src["url"],
         "region": src["region"],
         "section": src["section"],
-        "ok": error is None,
-        "item_count": len(items),
+        "cadence": src["cadence"],
+        "http_ok": http_ok,
+        "http_status": http_status,
+        "parse_ok": parse_ok,
+        "feed_version": meta.get("feed_version", ""),
+        "entry_count": meta.get("entry_count", 0),
+        "valid_count": len(items),
+        "dated_count": len(times),
+        "recent_count": sum(1 for t in times if t >= recent_after),
+        "newest_at": iso(newest),
+        "newest_at_dt": newest,
         "undated_count": basis.get("unknown", 0) + basis.get("invalid_future", 0),
         "time_basis": dict(basis),
         "duration_ms": int((time.perf_counter() - start) * 1000),
         "error": error,
     }
+    status["state"] = classify_source(status, now, ch)
+    status["state_label"] = STATE_LABELS[status["state"]]
+    # 호환: 이전 화면·도구가 쓰던 필드. ok 는 '정상 수집(최근 기사 확보 또는 시각 없음)'만 참.
+    status["ok"] = status["state"] in GOOD_STATES
+    status["item_count"] = len(items)
     return items, status
 
 
 def fetch_all(
-    sources: list[dict[str, Any]], now: datetime, table: PolicyTable
+    sources: list[dict[str, Any]], now: datetime, table: PolicyTable, cadence_hours: dict[str, float] | None = None
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """호스트별로는 순서대로, 호스트끼리는 병렬로 요청한다 (동시 요청 차단 회피)."""
     by_host: dict[str, list[dict[str, str]]] = defaultdict(list)
@@ -310,7 +359,7 @@ def fetch_all(
         for i, s in enumerate(group):
             if i:
                 time.sleep(0.5)
-            results.append(fetch_source(s, now, table))
+            results.append(fetch_source(s, now, table, cadence_hours))
         return results
 
     items: list[dict[str, Any]] = []
@@ -759,6 +808,79 @@ def interleave_by_outlet(stories: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
+# ---------------------------------------------------------------- 상태 저장·복구
+
+QUALITY_CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "quality.json"
+
+
+def load_quality_config(path: Path | None = None) -> dict[str, Any]:
+    return json.loads(Path(path or QUALITY_CONFIG_PATH).read_text(encoding="utf-8"))
+
+
+def write_json_atomic(path: Path, data: Any, pretty: bool = False) -> None:
+    """임시 파일에 쓴 뒤 바꿔치기. 중간에 실패해도 반쯤 쓴 파일이 남지 않는다."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    text = json.dumps(data, ensure_ascii=False, indent=2) if pretty else json.dumps(
+        data, ensure_ascii=False, separators=(",", ":")
+    )
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def fetch_site_json(site_url: str, rel: str) -> dict[str, Any] | None:
+    """배포된 페이지의 JSON (캐시 유실 시 이력·기준값 복구용). 실패하면 None."""
+    if not site_url:
+        return None
+    try:
+        r = requests.get(site_url.rstrip("/") + "/" + rel, timeout=15, headers={"User-Agent": BROWSER_UA})
+        if r.status_code != 200:
+            return None
+        return r.json()
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def load_source_history(state_dir: Path, site_url: str) -> tuple[dict[str, Any], str]:
+    """소스별 이력. 캐시(state/) → 배포된 status.json → 없음 순으로 찾는다."""
+    p = state_dir / "source_history.json"
+    if p.exists():
+        try:
+            return json.loads(p.read_text(encoding="utf-8")).get("sources", {}), "cache"
+        except Exception:  # noqa: BLE001
+            pass
+    deployed = fetch_site_json(site_url, "data/status.json")
+    if deployed:
+        hist = {s["url"]: s["history"] for s in deployed.get("sources", []) if s.get("url") and s.get("history")}
+        if hist:
+            return hist, "site"
+    return {}, "none"
+
+
+def archive_started_at(path: Path) -> str | None:
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8")).get("started_at")
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def summarize_sources(statuses: list[dict[str, Any]]) -> dict[str, Any]:
+    active = [s for s in statuses if s["state"] != "disabled"]
+    by_state = Counter(s["state"] for s in active)
+    return {
+        "active": len(active),
+        "ok": sum(1 for s in active if s["state"] in GOOD_STATES),
+        "by_state": dict(by_state),
+        "failed": [s["name"] for s in active if s["state"] in ("http_error", "parse_error")],
+        "empty": [s["name"] for s in active if s["state"] in ("empty", "filtered_all")],
+        "stale": [s["name"] for s in active if s["state"] == "stale"],
+        "undated": [s["name"] for s in active if s["state"] == "undated"],
+        "disabled": [s["name"] for s in statuses if s["state"] == "disabled"],
+    }
+
+
 # ---------------------------------------------------------------- main
 
 
@@ -768,18 +890,57 @@ def main() -> int:
     ap.add_argument("--output-dir", default="data")
     ap.add_argument("--top", type=int, default=TOP_TOTAL)
     ap.add_argument("--policy", default="", help="언론사 정책 표 (기본: feeds/outlets.json)")
+    ap.add_argument("--config", default="", help="품질 기준 (기본: config/quality.json)")
+    ap.add_argument(
+        "--site-url",
+        default=os.environ.get("SITE_URL", ""),
+        help="배포된 페이지 주소. 캐시가 없을 때 소스 이력을 여기서 복구한다",
+    )
     args = ap.parse_args()
 
     now = utc_now()
+    now_iso = iso(now)
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     archive_path = out_dir / "archive.json"
+    state_dir = out_dir / "state"
+    qconf = load_quality_config(Path(args.config) if args.config else None)
+    cadence_hours = {**DEFAULT_CADENCE_HOURS, **qconf.get("cadence_hours", {})}
 
     table = load_policy(Path(args.policy) if args.policy else None)
-    sources = load_sources(Path(args.sources))
-    fetched, statuses = fetch_all(sources, now, table)
+    all_sources = load_sources(Path(args.sources), include_disabled=True)
+    sources = [s for s in all_sources if s["enabled"]]
+    fetched, statuses = fetch_all(sources, now, table, cadence_hours)
+    for s in all_sources:
+        if not s["enabled"]:
+            statuses.append(
+                {
+                    "name": s["name"],
+                    "url": s["url"],
+                    "region": s["region"],
+                    "section": s["section"],
+                    "cadence": s["cadence"],
+                    "state": "disabled",
+                    "state_label": STATE_LABELS["disabled"],
+                    "ok": False,
+                    "item_count": 0,
+                    "error": s["disabled_reason"] or None,
+                }
+            )
 
+    # 소스 이력 (마지막 정상 수집, 연속 실패·0건 횟수)
+    history, history_source = load_source_history(state_dir, args.site_url)
+    for st in statuses:
+        if st["state"] != "disabled":
+            st["history"] = update_history(history.get(st["url"]), st, now_iso)
+        st.pop("newest_at_dt", None)
+
+    cache_restored = archive_path.exists()
+    started_at = archive_started_at(archive_path) if cache_restored else None
     archive = load_archive(archive_path, table)
+    if not started_at:
+        # 이전 형식이거나 캐시 유실: 남아 있는 기록 중 가장 이른 수집 시각, 없으면 지금부터
+        started_at = min((r.get("first_seen_at") for r in archive.values() if r.get("first_seen_at")), default=now_iso)
     merge_stats = merge_into_archive(archive, fetched, now)
     refresh_policy(archive, table)
     archive = prune_archive(archive, now, ARCHIVE_DAYS)
@@ -787,7 +948,6 @@ def main() -> int:
     news_after = now - timedelta(hours=NEWS_WINDOW_HOURS)
     sci_after = now - timedelta(days=SCIENCE_WINDOW_DAYS)
     journal_after = now - timedelta(days=JOURNAL_WINDOW_DAYS)
-    now_iso = iso(now)
     news_recs, sci_recs = [], []
     news_undated, sci_undated = [], []
     for rec in archive.values():
@@ -818,6 +978,8 @@ def main() -> int:
 
     top = select_top(news_stories, args.top)
     top_ids = [s["id"] for s in top]
+    visible_news = [s for s in news_stories if not s["low_value"]]
+    src_summary = summarize_sources(statuses)
 
     payload = {
         "schema": ARCHIVE_SCHEMA,
@@ -825,7 +987,15 @@ def main() -> int:
         "categories": CATEGORIES,
         "region_share": REGION_SHARE,
         "top_ids": top_ids,
-        "news": [s for s in news_stories if not s["low_value"]][:600],
+        # 화면이 이 시간보다 오래된 데이터를 보면 '갱신 지연'을 표시한다
+        "stale_after_minutes": qconf.get("stale_after_minutes", 180),
+        # 보관 데이터 범위. 캐시가 사라지면 이 시각 이전 기록(피드에서 이미 빠진 기사)은 복구할 수 없다.
+        "coverage": {
+            "archive_started_at": started_at,
+            "cache_restored": cache_restored,
+            "source_history_from": history_source,
+        },
+        "news": visible_news[:600],
         "science": sci_stories[:150],
         # 시각 미상이고 어느 사건에도 붙지 않은 기사: 순위·최신 목록에 넣지 않고 따로 둔다
         "undated": [public_article(m) for m in sorted(undated_left, key=lambda r: r["outlet"])][:200],
@@ -837,6 +1007,12 @@ def main() -> int:
             "science_articles": len(sci_recs),
             "top_kr": sum(1 for s in top if s["region"] == "kr"),
             "top_intl": sum(1 for s in top if s["region"] == "intl"),
+            "top_quota_kr": round(args.top * REGION_SHARE["kr"]),
+            "top_quota_intl": round(args.top * REGION_SHARE["intl"]),
+            "kr_candidates": sum(1 for s in visible_news if s["region"] == "kr"),
+            "intl_candidates": sum(1 for s in visible_news if s["region"] == "intl"),
+            "sources_active": src_summary["active"],
+            "sources_ok": src_summary["ok"],
             "undated_seen": len(news_undated) + len(sci_undated),
             "undated_attached": len(news_undated) + len(sci_undated) - len(undated_left),
             "archive_new": merge_stats.get("new", 0),
@@ -845,36 +1021,40 @@ def main() -> int:
         },
     }
     status = {
-        "generated_at": iso(now),
-        "ok": sum(1 for s in statuses if s["ok"]),
-        "failed": [s["name"] for s in statuses if not s["ok"]],
-        "empty": [s["name"] for s in statuses if s["ok"] and s["item_count"] == 0],
+        "generated_at": now_iso,
+        "ok": src_summary["ok"],
+        "active": src_summary["active"],
+        "summary": src_summary,
+        # 호환 필드
+        "failed": src_summary["failed"],
+        "empty": src_summary["empty"],
         "sources": sorted(statuses, key=lambda s: s["name"]),
     }
 
-    (out_dir / "news.json").write_text(
-        json.dumps(sanitize_public_payload(payload), ensure_ascii=False, separators=(",", ":")), encoding="utf-8"
+    write_json_atomic(out_dir / "news.json", sanitize_public_payload(payload))
+    write_json_atomic(out_dir / "status.json", status, pretty=True)
+    write_json_atomic(
+        archive_path,
+        {"schema": ARCHIVE_SCHEMA, "generated_at": now_iso, "started_at": started_at, "items": list(archive.values())},
     )
-    (out_dir / "status.json").write_text(json.dumps(status, ensure_ascii=False, indent=2), encoding="utf-8")
-    archive_path.write_text(
-        json.dumps(
-            {"schema": ARCHIVE_SCHEMA, "generated_at": iso(now), "items": list(archive.values())},
-            ensure_ascii=False,
-            separators=(",", ":"),
-        ),
-        encoding="utf-8",
+    write_json_atomic(
+        state_dir / "source_history.json",
+        {"generated_at": now_iso, "sources": {s["url"]: s["history"] for s in statuses if s.get("history")}},
+        pretty=True,
     )
 
     c = payload["counts"]
     print(
-        f"sources ok {status['ok']}/{len(statuses)} | fetched {c['fetched']} | "
+        f"sources ok {status['ok']}/{status['active']} {src_summary['by_state']} | fetched {c['fetched']} | "
         f"news {c['news_articles']} articles → {c['news_stories']} stories | "
         f"top {len(top)} (kr {c['top_kr']} / intl {c['top_intl']}) | science {len(sci_stories)} | "
         f"undated {c['undated_seen']} (attached {c['undated_attached']}) | "
         f"archive +{c['archive_new']} changed {c['archive_changed']} | ai-allowed {c['ai_allowed_articles']}"
     )
-    if status["failed"]:
-        print("failed:", ", ".join(status["failed"]))
+    for key in ("failed", "empty", "stale", "disabled"):
+        if src_summary[key]:
+            print(f"{key}:", ", ".join(src_summary[key]))
+    print(f"archive since {started_at} (cache restored: {cache_restored}, source history: {history_source})")
     return 0
 
 

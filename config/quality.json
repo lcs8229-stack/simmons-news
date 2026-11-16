@@ -1,0 +1,31 @@
+{
+  "_comment": [
+    "배포 전 품질 검사 기준. fail 하나라도 걸리면 배포하지 않고 기존 페이지를 유지한다.",
+    "warn 은 배포는 하되 health.json·화면 하단에 경고로 남긴다.",
+    "*_vs_baseline 항목은 직전 정상 배포본(baseline)이 있을 때만 검사한다. 첫 실행은 절대 기준만 쓴다.",
+    "candidates = 순위 후보 사건 수(저가치 제외). 주요 뉴스 할당(국내 24 / 해외 16)을 채우고도 남아야 한다.",
+    "2026-11-16 실측: 정상 소스 51~52/52, 뉴스 기사 약 1,700건, 국내 후보 약 1,100, 해외 후보 약 250."
+  ],
+  "fail": {
+    "min_ok_sources": 12,
+    "min_ok_ratio": 0.4,
+    "min_news_articles": 300,
+    "min_kr_candidates": 60,
+    "min_intl_candidates": 30,
+    "min_top_fill_ratio": 0.75,
+    "max_news_drop_vs_baseline": 0.6,
+    "max_region_drop_vs_baseline": 0.7
+  },
+  "warn": {
+    "min_ok_ratio": 0.85,
+    "max_news_drop_vs_baseline": 0.3,
+    "max_consecutive_failures": 6
+  },
+  "cadence_hours": {
+    "frequent": 12,
+    "daily": 48,
+    "weekly": 504,
+    "monthly": 1080
+  },
+  "stale_after_minutes": 180
+}

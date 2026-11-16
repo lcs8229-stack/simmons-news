@@ -28,6 +28,8 @@
       </nav>
     </header>
 
+    <div class="stale-banner" id="staleBanner" role="status" hidden></div>
+
     <main>
       <div class="controls">
         <input id="search" type="search" placeholder="검색" autocomplete="off" />
@@ -39,8 +41,10 @@
     </main>
 
     <footer class="foot">
+      <p id="lastGood"></p>
       <details>
         <summary id="statusSummary">소스 상태</summary>
+        <ul id="healthNotes" class="notes"></ul>
         <ul id="statusList"></ul>
       </details>
       <p>기사 제목·요약·링크만 표시합니다. 원문 저작권은 각 언론사에 있습니다.</p>

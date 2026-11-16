@@ -17,6 +17,9 @@
 feeds/sources.opml      소스 목록 (언론사·국내/해외·분야·성향·AI 처리 허용 여부)
 scripts/radar_lib.py    원 프로젝트에서 가져온 공통 함수
 scripts/outlets.py      언론사 정규화 · AI 활용 정책 판정 (feeds/outlets.json)
+scripts/source_health.py 소스 상태 판정(요청·파싱·유효·최근)과 실행 간 이력
+scripts/quality_gate.py 배포 전 품질 검사 (기준: config/quality.json)
+docs/OPERATIONS.md      운영 안내: 상태 정의, 배포 보류 기준, 캐시 유실·예약 중단 복구, 외부 감시
 scripts/build_news.py   수집 → 아카이브 → 사건 묶기 → 점수 → 60:40 선정 → data/news.json
 index.html, assets/     화면 (주요 / 국내 / 해외 / 과학·전기 탭, 분야 필터, 검색)
 .github/workflows/      매시간 수집·배포
@@ -60,6 +63,14 @@ index.html, assets/     화면 (주요 / 국내 / 해외 / 과학·전기 탭, �
 **같은 URL 갱신** — 제목·요약이 바뀌면 새 값으로 바꾸고 `revision`, `content_changed_at`, `previous_title` 을 남깁니다.
 `first_seen_at` 은 유지합니다. 아카이브는 `schema: 2` 이며, 이전 형식은 읽을 때 자동 변환합니다.
 
+## 수집·배포 안정성 (2단계)
+
+자세한 내용은 [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
+
+- 소스마다 요청 → 파싱 → 유효 기사 → 시각 확인 → 최근 기사를 구분해 `ok / undated / stale / filtered_all / empty / parse_error / http_error` 로 판정합니다. 0건은 정상으로 표시하지 않습니다.
+- 배포 전 품질 검사(`scripts/quality_gate.py`)가 실패하면 배포하지 않고 이전 정상 페이지를 유지합니다. 일부 소스 실패는 경고만 남깁니다.
+- 화면은 데이터 생성 시각이 3시간을 넘으면 스스로 "갱신 지연" 을 표시합니다. 알림은 별도 설정(Healthchecks.io)이 필요합니다.
+
 ## 로컬 실행
 
 ```bash
@@ -67,6 +78,7 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 python -m pytest -q
 python scripts/build_news.py
+python scripts/quality_gate.py   # 종료 코드 1 이면 배포 보류 대상
 python -m http.server 8080   # http://localhost:8080
 ```
 
