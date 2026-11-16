@@ -114,5 +114,6 @@ def test_sources_opml_is_valid_and_balanced():
     news = [s for s in sources if s["section"] == "news"]
     assert {s["region"] for s in news} == {"kr", "intl"}
     assert any(s["section"] == "science" for s in sources)
-    # 연합뉴스는 'AI 활용 금지' 약관 때문에 Claude 편집 대상에서 제외
-    assert all(not s["ai_ok"] for s in sources if s["outlet"] == "연합뉴스")
+    # 연합뉴스·한겨레는 RSS 약관('AI 학습 및 활용 금지') 때문에 피드 단위로도 금지
+    assert all(s["feed_ai_deny"] for s in sources if s["outlet"] in ("연합뉴스", "한겨레"))
+    assert all(s["via"] == ("google_news" if s["gnews"] else "direct") for s in sources)

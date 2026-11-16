@@ -16,6 +16,7 @@
 ```
 feeds/sources.opml      소스 목록 (언론사·국내/해외·분야·성향·AI 처리 허용 여부)
 scripts/radar_lib.py    원 프로젝트에서 가져온 공통 함수
+scripts/outlets.py      언론사 정규화 · AI 활용 정책 판정 (feeds/outlets.json)
 scripts/build_news.py   수집 → 아카이브 → 사건 묶기 → 점수 → 60:40 선정 → data/news.json
 index.html, assets/     화면 (주요 / 국내 / 해외 / 과학·전기 탭, 분야 필터, 검색)
 .github/workflows/      매시간 수집·배포
@@ -28,6 +29,36 @@ index.html, assets/     화면 (주요 / 국내 / 해외 / 과학·전기 탭, �
 3. **사건 묶기**: 제목을 한글 2글자 단위·영단어로 나눠 IDF 가중 유사도로 비교합니다. 각 사건의 첫 기사와 직접 비교해 서로 다른 사건이 줄줄이 엮이는 것을 막습니다.
 4. **분류**: 피드가 정한 분야를 우선 쓰고, 종합 피드는 키워드로 분류합니다. 인사·부고·방송 편성표는 뺍니다.
 5. **점수·선정**: `(1 + 2.2·log2(언론사 수)) × 최신성`. 국내 24 / 해외 16건을 고르고, 국내는 한 분야가 40%를 넘지 않게 합니다.
+
+## 기사 데이터 규칙 (1단계)
+
+**AI 활용 정책** — `feeds/outlets.json`, `scripts/outlets.py`
+
+- 기사마다 수집 경로(`via`: `direct` / `google_news`)와 원언론사(`outlet`)를 따로 기록합니다.
+  Google 뉴스 경유 기사는 `<source>` 의 이름·도메인으로 원언론사를 찾고, 별칭(예: Yonhap News Agency → 연합뉴스)을 정규화합니다.
+- 판정: 피드 `ai="no"` · 원언론사 `deny` · 경로 `deny` 중 하나라도 있으면 금지.
+  원언론사와 경로가 **모두 `allow`** 일 때만 허용. 정책 표에 없거나 `unknown` 이면 허용하지 않습니다.
+- 현재 근거 있는 금지: 연합뉴스, 한겨레 (RSS 에 "AI 학습 및 활용 금지"). 나머지는 모두 미확인이라 AI 처리 대상이 0건입니다.
+- 매 실행마다 아카이브 전체를 현재 정책 표로 재판정합니다. AI 요청을 만드는 코드는 반드시
+  `outlets.ai_gate()` 를 거쳐야 하며, 저장된 `ai_ok` 값은 믿지 않고 다시 판정합니다.
+
+**시간** — 기사마다 다음을 구분합니다.
+
+| 필드 | 뜻 |
+|---|---|
+| `published_at` | 발행 시각 (RSS `pubDate`, Atom `published`, RSS 1.0 `dc:date`) |
+| `updated_at` | 수정 시각 (Atom `updated`). 피드에 실제로 있을 때만 |
+| `time_basis` | 근거: `published` / `dc:date` / `updated_only` / `unknown` / `invalid_future` / `legacy`(이전 형식) |
+| `first_seen_at` / `last_seen_at` | 최초·마지막 수집 시각. **보도 시각으로 쓰지 않음** |
+
+- 시간대 없는 값은 소스 기준(국내 `Asia/Seoul`, 해외 `UTC`, OPML `tz` 속성으로 변경)으로 해석합니다.
+- 시각 미상 기사는 사건을 새로 만들거나 대표가 될 수 없고, 같은 사건이 있으면 "함께 보도한 언론사"로만 붙습니다.
+  붙지 않은 것은 `news.json` 의 `undated` 목록에 따로 둡니다.
+- 사건(story)의 `published_at`·제목·링크·언론사는 모두 **대표 기사 하나**에서 옵니다.
+  사건 전체의 최신 보도 시각은 `latest_reported_at` 입니다.
+
+**같은 URL 갱신** — 제목·요약이 바뀌면 새 값으로 바꾸고 `revision`, `content_changed_at`, `previous_title` 을 남깁니다.
+`first_seen_at` 은 유지합니다. 아카이브는 `schema: 2` 이며, 이전 형식은 읽을 때 자동 변환합니다.
 
 ## 로컬 실행
 

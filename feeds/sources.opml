@@ -12,7 +12,10 @@
               | science | energy | general   (general 이면 키워드로 자동 분류)
     lean      progressive | conservative | center (관점 비교용, 선택)
     gnews     1 이면 Google 뉴스 RSS: 제목 끝 " - 언론사" 를 떼고 언론사로 사용
-    ai        no 이면 Claude 편집 단계로 보내지 않음 (약관에 AI 활용 금지 문구가 있는 경우)
+    ai        no 이면 이 피드의 기사는 AI 처리 금지 (언론사 정책보다 우선, 금지 쪽으로만 작용)
+              최종 판정은 feeds/outlets.json 의 원언론사 정책과 수집 경로 정책을 함께 본다.
+              미확인 언론사·경로는 AI 처리하지 않는다.
+    tz        시간대 표기가 없는 시각에 적용할 기준 (기본: kr=Asia/Seoul, intl=UTC)
     enabled   false 이면 수집하지 않음
 
   2026-11-16 접속 확인. 실패/차단된 소스(동아일보, 한국일보, KBS, 동아사이언스,
@@ -33,9 +36,9 @@
       <outline text="조선일보 경제" outlet="조선일보" region="kr" section="news" category="economy" lean="conservative" xmlUrl="https://www.chosun.com/arc/outboundfeeds/rss/category/economy/?outputType=xml"/>
       <outline text="조선일보 국제" outlet="조선일보" region="kr" section="news" category="world" lean="conservative" xmlUrl="https://www.chosun.com/arc/outboundfeeds/rss/category/international/?outputType=xml"/>
       <outline text="중앙일보 (Google 뉴스)" outlet="중앙일보" region="kr" section="news" category="general" lean="conservative" gnews="1" xmlUrl="https://news.google.com/rss/search?q=site:joongang.co.kr+when:1d&amp;hl=ko&amp;gl=KR&amp;ceid=KR:ko"/>
-      <outline text="한겨레 정치" outlet="한겨레" region="kr" section="news" category="politics" lean="progressive" xmlUrl="https://www.hani.co.kr/rss/politics/"/>
-      <outline text="한겨레 경제" outlet="한겨레" region="kr" section="news" category="economy" lean="progressive" xmlUrl="https://www.hani.co.kr/rss/economy/"/>
-      <outline text="한겨레 전체" outlet="한겨레" region="kr" section="news" category="general" lean="progressive" xmlUrl="https://www.hani.co.kr/rss/"/>
+      <outline text="한겨레 정치" outlet="한겨레" region="kr" section="news" ai="no" category="politics" lean="progressive" xmlUrl="https://www.hani.co.kr/rss/politics/"/>
+      <outline text="한겨레 경제" outlet="한겨레" region="kr" section="news" ai="no" category="economy" lean="progressive" xmlUrl="https://www.hani.co.kr/rss/economy/"/>
+      <outline text="한겨레 전체" outlet="한겨레" region="kr" section="news" ai="no" category="general" lean="progressive" xmlUrl="https://www.hani.co.kr/rss/"/>
       <outline text="경향신문 정치" outlet="경향신문" region="kr" section="news" category="politics" lean="progressive" xmlUrl="https://www.khan.co.kr/rss/rssdata/politic_news.xml"/>
       <outline text="경향신문 경제" outlet="경향신문" region="kr" section="news" category="economy" lean="progressive" xmlUrl="https://www.khan.co.kr/rss/rssdata/economy_news.xml"/>
       <outline text="경향신문 전체" outlet="경향신문" region="kr" section="news" category="general" lean="progressive" xmlUrl="https://www.khan.co.kr/rss/rssdata/total_news.xml"/>
