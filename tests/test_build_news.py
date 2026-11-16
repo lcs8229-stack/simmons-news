@@ -84,19 +84,32 @@ def story(region, category, score, outlet_count=1):
     }
 
 
-def test_select_top_keeps_60_40_split_and_category_cap():
+def test_select_top_keeps_60_40_split_and_strict_category_cap():
     stories = [story("kr", "politics", 10 - i * 0.1) for i in range(20)]
     stories += [story("kr", "economy", 5 - i * 0.1) for i in range(20)]
     stories += [story("intl", "world", 4 - i * 0.1) for i in range(20)]
     stories += [story("intl", "economy", 3 - i * 0.1) for i in range(20)]
-    top = bn.select_top(stories, total=10)
+    report = {}
+    top = bn.select_top(stories, total=10, report=report)
     kr = [s for s in top if s["region"] == "kr"]
     intl = [s for s in top if s["region"] == "intl"]
-    assert len(kr) == 6 and len(intl) == 4
-    # 국내 정치는 상한(6 * 0.4 → 3)에 걸려 경제가 나머지를 채운다
-    assert sum(1 for s in kr if s["category"] == "politics") == 3
-    # 해외 '국제'는 상한 예외
-    assert all(s["category"] == "world" for s in intl)
+    # 국내 할당 6, 분야 상한 floor(6*0.4)=2 → 정치 2 + 경제 2 = 4. 상한을 넘겨 채우지 않는다.
+    assert len(kr) == 4
+    assert sum(1 for s in kr if s["category"] == "politics") == 2
+    assert report["kr"]["shortfall"] == 2 and report["kr"]["reason"]
+    assert report["kr"]["skipped"]["category_cap:politics"] > 0
+    # 해외 '국제'는 상한 예외(명시)
+    assert len(intl) == 4 and all(s["category"] == "world" for s in intl)
+    assert report["intl"]["category_cap_exempt"] == ["world"]
+
+
+def test_select_top_limits_slots_per_issue():
+    stories = [dict(story("kr", c, 10 - i), issue_id="i_same") for i, c in enumerate(["politics", "economy", "society"])]
+    stories += [story("kr", "culture", 1)]
+    report = {}
+    top = bn.select_top(stories, total=10, report=report)
+    assert sum(1 for s in top if s.get("issue_id") == "i_same") == bn.ISSUE_CAP_TOP
+    assert report["kr"]["skipped"]["issue_cap"] == 1
 
 
 def test_score_rewards_more_outlets():

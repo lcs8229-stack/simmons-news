@@ -188,6 +188,11 @@ def uniq(*parts):
     return f"{h[:10]} {h[10:20]} {h[20:30]}"
 
 
+def cat_of(region, f):
+    # 분야 상한(할당의 40%)에 걸리지 않도록 분야를 섞는다. 해외는 '국제'(상한 예외)
+    return "world" if region == "intl" else ["politics", "economy", "society", "culture"][f % 4]
+
+
 def make_feeds(root: Path, base: str, n_kr=6, n_intl=4, per_feed=8):
     now = datetime.now(timezone.utc)
     lines = []
@@ -205,7 +210,7 @@ def make_feeds(root: Path, base: str, n_kr=6, n_intl=4, per_feed=8):
             )
             lines.append(
                 f'<outline text="{region}{f}" outlet="매체{region}{f}" region="{region}" section="news" '
-                f'category="politics" xmlUrl="{base}/{region}{f}.xml"/>'
+                f'category="{cat_of(region, f)}" xmlUrl="{base}/{region}{f}.xml"/>'
             )
     return lines
 

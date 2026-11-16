@@ -2,7 +2,7 @@
 
 const PAGE = 30;
 const TAB_NOTES = {
-  top: "여러 언론이 함께 보도한 사건 순 · 국내 60% / 해외 40%",
+  top: "여러 언론이 함께 보도한 사건 순 · 사건 대상 기준 국내 60% / 해외 40%",
   kr: "국내 언론 보도 · 많이 보도된 순",
   intl: "해외 언론 보도 · 많이 보도된 순",
   science: "과학 저널 · 전기·에너지 전문지 · 최신순",
@@ -56,7 +56,25 @@ function storiesForTab() {
     const byId = new Map(d.news.map((s) => [s.id, s]));
     return d.top_ids.map((id) => byId.get(id)).filter(Boolean);
   }
-  return d.news.filter((s) => s.region === state.tab);
+  // 국내/해외 탭은 사건 대상 지역 기준. 한·해외 공동 사건(both)은 두 탭에 모두 보인다.
+  return d.news.filter((s) => {
+    const t = s.target_region || s.region;
+    return t === state.tab || t === "both";
+  });
+}
+
+const TARGET_LABEL = { kr: "국내", intl: "해외", both: "국내·해외" };
+
+function relatedStories(s) {
+  const d = state.data;
+  if (!d || !s.issue_id || (s.issue_size || 1) < 2) return [];
+  if (!state.issueIndex) {
+    state.issueIndex = new Map((d.issues || []).map((i) => [i.id, i]));
+    state.newsById = new Map(d.news.map((x) => [x.id, x]));
+  }
+  const issue = state.issueIndex.get(s.issue_id);
+  if (!issue) return [];
+  return issue.story_ids.filter((id) => id !== s.id).map((id) => state.newsById.get(id)).filter(Boolean);
 }
 
 function filtered() {
@@ -115,7 +133,7 @@ function renderStory(s, rank) {
   if (state.tab === "top") {
     const r = document.createElement("span");
     r.className = "rank";
-    r.textContent = s.region === "kr" ? "국내" : "해외";
+    r.textContent = TARGET_LABEL[s.target_region] || (s.region === "kr" ? "국내" : "해외");
     head.prepend(r);
   }
   if (s.outlet_count > 1) {
@@ -178,6 +196,31 @@ function renderStory(s, rank) {
     det.append(ul);
     li.append(det);
   }
+
+  // 같은 이슈의 다른 사건 (주요 뉴스에서는 이슈당 칸 수를 제한하므로 여기서 이어 본다)
+  const related = relatedStories(s);
+  if (related.length) {
+    const det = document.createElement("details");
+    det.className = "others related";
+    const sum = document.createElement("summary");
+    sum.textContent = `관련 사건 ${related.length}건`;
+    det.append(sum);
+    const ul = document.createElement("ul");
+    for (const r of related.slice(0, 12)) {
+      const rli = document.createElement("li");
+      const ra = document.createElement("a");
+      ra.href = r.url;
+      ra.target = "_blank";
+      ra.rel = "noopener";
+      ra.textContent = r.title_ko || r.title;
+      const src = document.createElement("span");
+      src.textContent = r.outlet_count > 1 ? `${r.outlet_count}개 언론` : r.outlet;
+      rli.append(src, ra);
+      ul.append(rli);
+    }
+    det.append(ul);
+    li.append(det);
+  }
   li.dataset.rank = rank;
   return li;
 }
@@ -189,7 +232,15 @@ function render() {
     b.classList.toggle("active", on);
     b.setAttribute("aria-selected", on ? "true" : "false");
   }
-  $("tabNote").textContent = TAB_NOTES[state.tab];
+  let note = TAB_NOTES[state.tab];
+  const sel = state.data.selection || {};
+  if (state.tab === "top") {
+    const short = ["kr", "intl"].filter((k) => sel[k] && sel[k].shortfall > 0);
+    if (short.length) {
+      note += " · " + short.map((k) => `${k === "kr" ? "국내" : "해외"} ${sel[k].selected}/${sel[k].quota} (${sel[k].reason})`).join(", ");
+    }
+  }
+  $("tabNote").textContent = note;
   renderChips();
   const items = filtered();
   const list = $("list");

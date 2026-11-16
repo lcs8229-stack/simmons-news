@@ -16,6 +16,7 @@ import os
 import re
 import sys
 import time
+import unicodedata
 import xml.etree.ElementTree as ET
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
@@ -596,7 +597,9 @@ def title_tokens(title: str) -> set[str]:
 
 
 SIM_THRESHOLD = 0.45
-CLUSTER_SPAN_HOURS = 30
+# 같은 사건 묶음의 최초 기사 ~ 최종 기사 시간 폭 상한.
+# 이보다 늦은 후속 보도는 새 사건으로 두고 관련 이슈로 연결한다.
+CLUSTER_MAX_SPAN_HOURS = 24
 
 
 def weighted_similarity(a: set[str], b: set[str], idf: dict[str, float]) -> float:
@@ -612,21 +615,105 @@ def weighted_similarity(a: set[str], b: set[str], idf: dict[str, float]) -> floa
     return wi / min(wa, wb) * 0.6 + wi / (wa + wb - wi) * 0.4
 
 
+# ---------------------------------------------------------------- 오병합 방지 (의미 충돌 검사)
+#
+# 토큰이 많이 겹쳐도 아래 중 하나면 다른 사건일 가능성이 높으므로 합치지 않는다.
+#   - 문두 주어(쉼표 앞)가 서로 다른 기업·인물·기관   "DB증권, 3분기…" vs "오리온, 3분기…"
+#   - 같은 단위의 금액·비율이 서로 다름                "코스피 3.6% 급락" vs "코스피 1.2% 급락"
+#   - 날짜(N일)가 서로 다름                            "19일 선고" vs "17일 회담"
+#   - 반대 방향 표현                                   "인상" vs "인하", "가결" vs "부결"
+# 같은 사건인데 갈라지는 경우(중복)가 생길 수 있지만, 애매하면 합치지 않는 쪽을 택한다.
+
+# 문두 주어: 쉼표 앞의 짧은 명사구만 (말줄임표 앞 구절은 주어가 아니라 문장 일부인 경우가 많다)
+LEAD_SUBJECT_RE = re.compile(r"^(?:\s*\[[^\]]{0,12}\])*\s*([^,\[\]\"“”‘’'\s][^,…\"“”]{0,9}?)\s*,")
+# 같은 사건을 기관 이름만 바꿔 부르는 일이 잦은 일반 주어: 서로 달라도 충돌로 보지 않는다
+GENERIC_SUBJECTS = {
+    "정부", "당국", "경찰", "검찰", "법원", "대법", "대법원", "국회", "여야", "與", "野", "靑", "청와대",
+    "대통령실", "교육부", "외교부", "국방부", "통일부", "기재부", "합참", "軍", "군", "속보", "종합", "단독",
+    # 다른 주체를 조사·제재하는 기관: "공정위, 굽네치킨 조사" vs "굽네치킨 창업주, 의혹" 은 같은 사건
+    "공정위", "금감원", "금융위", "국세청", "감사원", "선관위", "헌재", "특검", "공수처", "경찰청", "검찰청",
+}
+# 같은 인물·직위의 다른 표기 ("李대통령", "이 대통령", "李") → 직위로 맞춘다
+TITLE_WORDS = "대통령|총리|장관|의장|대표|위원장|원내대표|비대위원장|대변인|지사|시장"
+SUBJECT_ALIAS_RE = re.compile(rf"^(?:[\u4e00-\u9fff]|[가-힣]{{1,3}}\s*)?({TITLE_WORDS})$")
+SUBJECT_ALIASES = {"李": "대통령", "이재명": "대통령", "尹": "윤석열"}
+DAY_RE = re.compile(r"(?<!\d)(\d{1,2})일(?!간|째|부터)")
+OPPOSITES = [
+    ("인상", "인하"), ("상승", "하락"), ("급등", "급락"), ("상승", "급락"), ("가결", "부결"),
+    ("찬성", "반대"), ("승인", "불허"), ("체포", "석방"), ("구속", "석방"), ("흑자", "적자"),
+    ("유죄", "무죄"), ("rise", "fall"), ("rises", "falls"), ("up", "down"),
+]
+
+
+def lead_subject(title: str) -> str:
+    # 호환용 한자(예: U+F9E1 '李')가 섞여 들어오므로 먼저 정규화한다
+    m = LEAD_SUBJECT_RE.match(unicodedata.normalize("NFKC", title or ""))
+    if not m:
+        return ""
+    subj = m.group(1).strip()
+    if subj.count(" ") > 1:  # 띄어쓰기가 많으면 주어가 아니라 구절
+        return ""
+    if subj in SUBJECT_ALIASES:
+        return SUBJECT_ALIASES[subj]
+    alias = SUBJECT_ALIAS_RE.match(subj)
+    return alias.group(1) if alias else subj
+
+
+def _subject_tokens(s: str) -> set[str]:
+    return title_tokens(s) | ({s} if len(s) <= 2 else set())
+
+
+def conflict_reason(a: str, b: str) -> str | None:
+    """두 제목이 다른 사건일 가능성이 높은 의미 충돌이면 그 이유, 아니면 None."""
+    sa, sb = lead_subject(a), lead_subject(b)
+    if sa and sb and sa not in GENERIC_SUBJECTS and sb not in GENERIC_SUBJECTS:
+        ta, tb = _subject_tokens(sa), _subject_tokens(sb)
+        a_tokens, b_tokens = title_tokens(a), title_tokens(b)
+        # 상대 제목 어디에도 내 주어가 없을 때만 충돌 (주어 자리만 바뀐 같은 사건은 통과)
+        if ta and tb and not (ta & tb) and not (ta & b_tokens) and not (tb & a_tokens) \
+                and sa not in b and sb not in a:
+            return f"subject:{sa}|{sb}"
+    da, db = set(DAY_RE.findall(a)), set(DAY_RE.findall(b))
+    if da and db and not (da & db):
+        return "date"
+    la, lb = a.lower(), b.lower()
+    for x, y in OPPOSITES:
+        if len(x) <= 3:  # 짧은 영어 단어는 단어 경계로
+            ax, ay = re.search(rf"\b{x}\b", la), re.search(rf"\b{y}\b", la)
+            bx, by = re.search(rf"\b{x}\b", lb), re.search(rf"\b{y}\b", lb)
+        else:
+            ax, ay, bx, by = x in la, y in la, x in lb, y in lb
+        if (ax and by and not ay and not bx) or (ay and bx and not ax and not by):
+            return f"opposite:{x}|{y}"
+    return None
+
+
 def cluster(records: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
     return cluster_with_undated(records, [])[0]
 
 
 def cluster_with_undated(
-    dated: list[dict[str, Any]], undated: list[dict[str, Any]]
+    dated: list[dict[str, Any]], undated: list[dict[str, Any]], stats: Counter | None = None
 ) -> tuple[list[list[dict[str, Any]]], list[dict[str, Any]]]:
+    groups, leftovers, _ = cluster_detail(dated, undated, stats)
+    return [g["members"] for g in groups], leftovers
+
+
+def cluster_detail(
+    dated: list[dict[str, Any]],
+    undated: list[dict[str, Any]],
+    stats: Counter | None = None,
+    examples: list | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, float]]:
     """제목 토큰 유사도로 같은 사건 기사를 묶는다.
 
-    단일 연결(union-find)은 'A~B, B~C' 식으로 서로 다른 사건이 줄줄이 엮이므로,
-    각 사건의 첫 기사(seed)와 직접 비교하는 탐욕적 묶기를 쓴다.
-
-    시각 미상 기사(undated)는 사건을 새로 만들거나 대표가 될 수 없고, 이미 있는 사건에
-    '함께 보도한 언론사'로만 붙는다. 어디에도 붙지 않은 것은 따로 돌려준다.
+    - 각 사건의 첫 기사(seed)와 직접 비교하는 탐욕적 묶기 (A~B~C 연쇄 병합 방지).
+    - 묶음의 시간 폭은 seed(최초 기사) 기준으로 검사한다. 최신 기사가 들어와도 기준이 움직이지 않는다.
+    - 의미 충돌(conflict_reason)이 있으면 합치지 않는다.
+    - 시간 폭을 넘었지만 내용이 같은 후속 보도는 새 사건으로 만들고 follow_of 로 기록 → 관련 이슈 연결.
+    - 시각 미상 기사는 사건을 새로 만들 수 없고 기존 사건에만 붙는다.
     """
+    stats = stats if stats is not None else Counter()
     recs = sorted(dated, key=lambda r: article_time(r) or datetime.min.replace(tzinfo=UTC))
     toks = [title_tokens(r["title"]) for r in recs]
     u_toks = [title_tokens(r["title"]) for r in undated]
@@ -635,62 +722,300 @@ def cluster_with_undated(
     n = max(200, len(recs) + len(undated))
     idf = {t: math.log((n + 1) / (c + 0.5)) for t, c in df.items()}
 
-    clusters: list[dict[str, Any]] = []  # {"seed": tokens, "region":..., "t": time, "members": [...]}
-    index: dict[str, list[int]] = defaultdict(list)  # token -> cluster ids (seed 기준)
-    span = timedelta(hours=CLUSTER_SPAN_HOURS)
+    groups: list[dict[str, Any]] = []
+    index: dict[str, list[int]] = defaultdict(list)  # token -> group ids (seed 기준)
+    span = timedelta(hours=CLUSTER_MAX_SPAN_HOURS)
 
-    def best_match(rec: dict[str, Any], ts: set[str], t: datetime | None) -> int:
+    def candidates(rec: dict[str, Any], ts: set[str]) -> list[tuple[float, int]]:
         cand: Counter[int] = Counter()
         for tok in ts:
-            for cid in index.get(tok, ()):
-                cand[cid] += 1
-        best, best_sim = -1, 0.0
-        for cid, shared in cand.items():
-            if shared < 2:
+            for gid in index.get(tok, ()):
+                cand[gid] += 1
+        out = []
+        for gid, shared in cand.items():
+            if shared < 2 or groups[gid]["region"] != rec["region"]:
                 continue
-            c = clusters[cid]
-            if c["region"] != rec["region"] or (t is not None and t - c["t"] > span):
-                continue
-            sim = weighted_similarity(ts, c["seed"], idf)
-            if sim > best_sim:
-                best, best_sim = cid, sim
-        return best if best_sim >= SIM_THRESHOLD else -1
+            sim = weighted_similarity(ts, groups[gid]["seed"], idf)
+            if sim >= SIM_THRESHOLD:
+                out.append((sim, gid))
+        return sorted(out, reverse=True)
+
+    def blocked(rec: dict[str, Any], g: dict[str, Any]) -> str | None:
+        for other in (g["members"][0], g["members"][-1]):  # seed 와 가장 최근 기사
+            why = conflict_reason(rec["title"], other["title"])
+            if why:
+                return why
+        return None
 
     for rec, ts in zip(recs, toks):
         t = article_time(rec) or datetime.min.replace(tzinfo=UTC)
-        best = best_match(rec, ts, t)
-        if best >= 0:
-            clusters[best]["members"].append(rec)
-            clusters[best]["t"] = max(clusters[best]["t"], t)
+        joined, follow_of = -1, None
+        for sim, gid in candidates(rec, ts):
+            g = groups[gid]
+            if t - g["t_first"] > span:
+                follow_of = gid if follow_of is None else follow_of
+                stats["span_exceeded"] += 1
+                continue
+            why = blocked(rec, g)
+            if why:
+                stats["conflict:" + why.split(":")[0]] += 1
+                if examples is not None:
+                    examples.append((why, rec["title"], g["members"][0]["title"]))
+                continue
+            joined = gid
+            break
+        if joined >= 0:
+            g = groups[joined]
+            g["members"].append(rec)
+            g["t_last"] = max(g["t_last"], t)
             continue
-        cid = len(clusters)
-        clusters.append({"seed": ts, "region": rec["region"], "t": t, "members": [rec]})
+        gid = len(groups)
+        groups.append({"seed": ts, "region": rec["region"], "t_first": t, "t_last": t, "members": [rec],
+                       "follow_of": follow_of})
         for tok in ts:
-            index[tok].append(cid)
+            index[tok].append(gid)
 
     leftovers: list[dict[str, Any]] = []
     for rec, ts in zip(undated, u_toks):
-        best = best_match(rec, ts, None)
-        if best >= 0:
-            clusters[best]["members"].append(rec)
+        target = next((gid for _, gid in candidates(rec, ts) if not blocked(rec, groups[gid])), -1)
+        if target >= 0:
+            groups[target]["members"].append(rec)
         else:
             leftovers.append(rec)
 
-    return [c["members"] for c in clusters], leftovers
+    return groups, leftovers, idf
 
 
-# ---------------------------------------------------------------- 점수·선정
+# ---------------------------------------------------------------- 관련 이슈
+#
+# 같은 사건(같은 일을 보도한 기사 묶음)보다 한 단계 넓은 '관련 이슈'.
+# 예: "수능 와이파이 차단"과 "범정부 대응팀 구성"은 제목 낱말이 거의 겹치지 않지만,
+#     "AI 부정행위 우려에 수능 와이파이 차단" → "수능 부정행위 대비" 같은 기사를 거쳐 이어진다.
+# 그래서 사건마다 구성 기사 제목 전체의 낱말을 모아 두 사건이 공유하는 희귀 낱말의 IDF 합이
+# ISSUE_MIN_SHARED_WEIGHT 이상이면(3개 이상) 연결 후보로 둔다.
+# 2026-11-16 표본: 실제 관련 쌍은 대부분 24 이상, 무관한 쌍은 12~14 (흔한 낱말 때문).
+# 연결을 그대로 따라가면 흔한 정치 낱말로 수백 개 사건이 한 이슈가 되므로(표본에서 218개),
+# 강한 연결부터 차례로 잇되 이슈 크기가 ISSUE_MAX_UNITS 를 넘게 되는 연결은 하지 않는다.
+# 크기는 2곳 이상 보도한 사건 1, 1곳만 보도한 사건 0.25 로 센다 (단독 칼럼·해설이 자리를 채우지 않게).
+# 1곳만 보도한 사건은 '잎'으로만 붙는다: 한 이슈에 붙을 수는 있지만 두 이슈를 잇는 다리가 될 수 없다
+# (표본에서 해설 기사 하나가 집값·AI 커닝·태양광 기사를 한 이슈로 엮었다).
+ISSUE_MIN_SHARED_WEIGHT = 13.0
+ISSUE_MAX_UNITS = 20.0
+ISSUE_MIN_SHARED_TOKENS = 3
+ISSUE_MAX_GAP_HOURS = 72
+# 여러 사건에 두루 나오는 낱말: 이슈 연결에서는 세지 않는다
+ISSUE_STOP_TOKENS = {
+    "개월", "만에", "최대", "최고", "역대", "상회", "회의", "위원", "대통", "통령", "정부", "국회", "의장",
+    "논란", "검토", "추진", "발표", "공식", "오늘", "내일", "올해", "내년", "기자", "현장", "사진",
+}
+
+
+def link_issues(groups: list[dict[str, Any]], idf: dict[str, float]) -> list[int]:
+    """사건 묶음끼리 관련 이슈로 연결한다. 반환: groups 와 같은 순서의 이슈 번호.
+
+    시간 폭 초과로 갈라진 후속 보도(follow_of)는 항상 같은 이슈로 둔다.
+    """
+    n = len(groups)
+    parent = list(range(n))
+
+    def find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(x: int, y: int) -> None:
+        rx, ry = find(x), find(y)
+        if rx != ry:
+            parent[max(rx, ry)] = min(rx, ry)
+
+    # 사건의 낱말 묶음: 첫 기사 제목 낱말 + 구성 기사 2개 이상에 나온 낱말.
+    # 구성 기사 하나에만 나온 낱말은 빼서, 엉뚱한 기사 하나가 다른 주제를 끌어오지 않게 한다.
+    profiles = []
+    for g in groups:
+        counts: Counter[str] = Counter()
+        for m in g["members"]:
+            counts.update(title_tokens(m["title"]))
+        core = {t for t, c in counts.items() if c >= 2} | title_tokens(g["members"][0]["title"])
+        profiles.append(core - ISSUE_STOP_TOKENS)
+    index: dict[str, list[int]] = defaultdict(list)
+    for i, toks in enumerate(profiles):
+        for t in toks:
+            index[t].append(i)
+    gap = timedelta(hours=ISSUE_MAX_GAP_HOURS)
+    size = [1.0 if len({m["outlet"] for m in g["members"]}) > 1 else 0.25 for g in groups]
+    edges: list[tuple[float, int, int]] = []
+    for i, g in enumerate(groups):
+        if g.get("follow_of") is not None:
+            edges.append((float("inf"), i, g["follow_of"]))  # 후속 보도는 항상 먼저 연결
+        cand: Counter[int] = Counter()
+        for t in profiles[i]:
+            post = index[t]
+            if len(post) > 60:  # 너무 흔한 낱말
+                continue
+            for j in post:
+                if j > i:
+                    cand[j] += 1
+        for j, shared in cand.items():
+            if shared < ISSUE_MIN_SHARED_TOKENS or groups[j]["region"] != g["region"]:
+                continue
+            h = groups[j]
+            if h["t_first"] - g["t_last"] > gap or g["t_first"] - h["t_last"] > gap:
+                continue
+            w = sum(idf.get(t, 1.0) for t in profiles[i] & profiles[j])
+            if w >= ISSUE_MIN_SHARED_WEIGHT:
+                edges.append((w, i, j))
+    edges.sort(key=lambda e: (-e[0], e[1], e[2]))
+    single = [len({m["outlet"] for m in g["members"]}) <= 1 for g in groups]
+    attached = [False] * n
+    for w, i, j in edges:
+        ri, rj = find(i), find(j)
+        if ri == rj or size[ri] + size[rj] > ISSUE_MAX_UNITS:
+            continue
+        if w != float("inf"):
+            if single[i] and single[j]:
+                continue  # 단독 사건끼리는 잇지 않는다
+            if (single[i] and attached[i]) or (single[j] and attached[j]):
+                continue  # 이미 붙은 단독 사건은 다리가 될 수 없다
+        attached[i] = attached[j] = True
+        keep, drop = min(ri, rj), max(ri, rj)
+        parent[drop] = keep
+        size[keep] += size[drop]
+    roots: dict[int, int] = {}
+    return [roots.setdefault(find(i), len(roots)) for i in range(n)]
+
+
+# ---------------------------------------------------------------- 사건 대상 지역
+#
+# source_region: 보도한 언론사의 소재 (kr / intl / mixed)
+# target_region: 사건이 일어난 곳·당사자 (kr / intl / both)
+#   - 국내 언론: 기본 kr. 해외 신호만 있으면 intl, 해외 신호와 한국 신호가 함께 있으면 both.
+#     국제 섹션 기사는 기본 intl, 한국 신호가 있으면 both. 북한 기사는 kr(한반도 사안).
+#   - 해외 언론: 기본 intl. 한국 신호가 있으면 kr (해외 언론이 본 한국 사건).
+#   - 신호가 하나도 없으면 언론사 소재로 정하고 basis 를 'outlet_fallback' 으로 남긴다(분류 불확실).
+# 주요 뉴스 60:40 은 target 기준: kr 할당 ← kr + both(한국이 당사자인 공동 사건), intl 할당 ← intl.
+
+KR_SIGNALS_KO = [
+    "한국", "한미", "한일", "한중", "한-", "이 대통령", "이재명", "국내", "우리 정부", "서울", "부산",
+    "삼성", "현대차", "SK", "LG", "K-", "K팝", "케이팝", "북한", "김정은", "주한", "방한", "재외국민", "교민",
+]
+# 한 글자 약어(美·中·日·러 등)는 '달러', '中企' 처럼 다른 낱말 안에 들어가므로 경계를 확인한다
+FOREIGN_ABBR_RE = re.compile(r"(?<![가-힣\u4e00-\u9fff])(美|中|日|러|英|佛|獨|印|伊|佛)(?![가-힣\u4e00-\u9fff])")
+KR_ABBR_RE = re.compile(r"(?<![가-힣\u4e00-\u9fff])(韓|北|李)(?![\u4e00-\u9fff])|(?<![A-Za-z])K-?[가-힣]")
+FOREIGN_SIGNALS_KO = [
+    "미국", "중국", "일본", "러시아", "우크라", "이스라엘", "이란", "가자", "하마스", "유럽",
+    "EU", "나토", "유엔", "트럼프", "시진핑", "푸틴", "다카이치", "젤렌스키", "네타냐후", "백악관", "독일", "영국",
+    "프랑스", "인도", "대만", "필리핀", "베트남", "태국", "인니", "인도네시아", "캐나다", "멕시코", "브라질", "튀르키예",
+    "사우디", "예멘", "시리아", "아세안", "APEC", "G20", "G7", "FT", "WSJ", "블룸버그", "로이터", "NYT",
+]
+KR_SIGNALS_EN = re.compile(
+    r"\b(south korea|korea|korean|koreans|seoul|busan|pyongyang|kim jong|lee jae|yoon suk|samsung|hyundai|"
+    r"sk hynix|k-pop|bts|blackpink)\b",
+    re.I,
+)
+
+
+def article_target(rec: dict[str, Any]) -> tuple[str, str]:
+    # 제목만 본다. RSS 요약 첫머리는 "(마닐라=연합뉴스)" 처럼 취재지가 붙어 국내 사안도 해외로 보이게 한다.
+    text = rec.get("title", "")
+    if rec.get("region") == "intl":
+        return ("kr", "korea_signal") if KR_SIGNALS_EN.search(text) else ("intl", "outlet_intl")
+    kr = any(w in text for w in KR_SIGNALS_KO) or bool(KR_ABBR_RE.search(text))
+    foreign = any(w in text for w in FOREIGN_SIGNALS_KO) or bool(FOREIGN_ABBR_RE.search(text))
+    cat = rec.get("feed_category")
+    if cat == "northkorea":
+        return "kr", "feed_northkorea"
+    if cat == "world":
+        return ("both", "world_feed+korea_signal") if kr else ("intl", "world_feed")
+    if foreign and kr:
+        return "both", "foreign+korea_signal"
+    if foreign:
+        return "intl", "foreign_signal"
+    if kr:
+        return "kr", "korea_signal"
+    return "kr", "outlet_fallback"
+
+
+def story_target(members: list[dict[str, Any]]) -> tuple[str, str]:
+    """사건 대상: 구성 기사 다수결. 국내·해외 판정이 각각 1/3 이상 섞이면 공동 사건(both).
+
+    기사 하나의 판정이 사건 전체를 바꾸지 않게 한다. 근거(basis)는 다수 쪽 기사들의 것.
+    """
+    judged = [article_target(m) for m in members]
+    votes = Counter(t for t, _ in judged)
+    n = len(judged)
+    kr_share = (votes.get("kr", 0) + votes.get("both", 0)) / n
+    intl_share = (votes.get("intl", 0) + votes.get("both", 0)) / n
+    if votes.get("both", 0) / n > 0.5 or (votes.get("kr") and votes.get("intl") and min(kr_share, intl_share) >= 1 / 3):
+        target = "both"
+    else:
+        target = max(("kr", "intl", "both"), key=lambda k: (votes.get(k, 0), k == "kr"))
+    basis = Counter(b for t, b in judged if t == target).most_common(1)
+    return target, basis[0][0] if basis else "mixed"
+
+
+def quota_bucket(target: str) -> str:
+    return "intl" if target == "intl" else "kr"
+
+
+# ---------------------------------------------------------------- 대표 기사
+
+TIME_RELIABILITY = {"published": 1.0, "dc:date": 0.9, "updated_only": 0.6, "legacy": 0.5}
+CONSOLIDATED_RE = re.compile(r"\((?:종합|종합\d보)\)|\(\d보\)|\b(?:update|updated)\b", re.I)
+FLASH_RE = re.compile(r"^\s*\[(?:속보|1보|포토|사진|영상|그래픽)\]")
+UPDATE_NO_RE = re.compile(r"\(종합(\d)보\)|\((\d)보\)")
+
+
+def representative_basis(m: dict[str, Any], latest: datetime | None) -> dict[str, Any]:
+    """대표 기사 판단 재료. observed 는 피드에서 확인한 사실, estimated 는 제목 표기로 미루어 본 추정."""
+    t = article_time(m)
+    summary = m.get("summary") or ""
+    title = m.get("title") or ""
+    observed = {
+        "time_reliability": TIME_RELIABILITY.get(m.get("time_basis"), 0.0) if t else 0.0,
+        "summary_len": len(summary),
+        "direct_link": m.get("via") == "direct",
+        "hours_behind_latest": round((latest - t).total_seconds() / 3600, 2) if (t and latest) else None,
+    }
+    estimated = {}
+    if CONSOLIDATED_RE.search(title):
+        estimated["consolidated"] = "제목에 (종합)/(N보) 표기 → 내용을 정리·보강한 기사로 추정"
+    if FLASH_RE.search(title):
+        estimated["flash"] = "제목에 [속보]/[포토] 등 표기 → 짧은 초기 보도로 추정"
+    no = UPDATE_NO_RE.search(title)
+    if no:
+        estimated["update_no"] = int(no.group(1) or no.group(2))
+    return {"observed": observed, "estimated": estimated}
+
+
+def representative_score(basis: dict[str, Any]) -> float:
+    o, e = basis["observed"], basis["estimated"]
+    # 완결성: 요약 길이(관측) + 종합·속보 표기(추정). 품질·독립 취재를 판정하는 값이 아니다.
+    completeness = min(1.0, o["summary_len"] / 120) * 0.7 + (0.3 if o["direct_link"] else 0.0)
+    if "consolidated" in e:
+        completeness += 0.15
+    if "flash" in e:
+        completeness -= 0.25
+    behind = o["hours_behind_latest"]
+    freshness = 0.0 if behind is None else math.pow(0.5, behind / 6.0)  # 새 전개 반영: 묶음 최신 기사에 가까울수록
+    return round(0.35 * o["time_reliability"] + 0.4 * max(0.0, completeness) + 0.25 * freshness, 4)
 
 
 def pick_representative(members: list[dict[str, Any]]) -> dict[str, Any]:
-    """대표 기사: 시각이 확인된 기사 중에서 통신사·방송 우선, 요약 있는 것, 최신 순."""
+    """대표 기사: 시각 신뢰도 · 내용 완결성 · 새 전개 반영을 함께 본다.
+
+    언론사 고정 순위(OUTLET_PRIORITY)는 점수가 같을 때만 쓰는 마지막 기준이다.
+    """
     dated = [m for m in members if article_time(m)]
     pool = dated or members
+    times = [t for t in (article_time(m) for m in pool) if t]
+    latest = max(times) if times else None
 
     def key(r: dict[str, Any]) -> tuple:
+        score = representative_score(representative_basis(r, latest))
         outlet = r.get("outlet", "")
         prio = OUTLET_PRIORITY.index(outlet) if outlet in OUTLET_PRIORITY else len(OUTLET_PRIORITY)
-        return (prio, 0 if r.get("summary") else 1, -(article_time(r) or datetime.min.replace(tzinfo=UTC)).timestamp())
+        return (-score, prio, -(article_time(r) or datetime.min.replace(tzinfo=UTC)).timestamp(), r.get("id", ""))
 
     return sorted(pool, key=key)[0]
 
@@ -711,6 +1036,12 @@ def public_article(m: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def provisional_story_id(members: list[dict[str, Any]]) -> str:
+    """대장(registry)에 기록이 없을 때 쓰는 사건 ID: 최초(seed) 기사 ID 에서 만든다."""
+    seed = min(members, key=lambda m: (article_time(m) or datetime.max.replace(tzinfo=UTC), m.get("id", "")))
+    return "s_" + hashlib.sha1(("story|" + seed["id"]).encode("utf-8")).hexdigest()[:12]
+
+
 def build_story(members: list[dict[str, Any]], now: datetime) -> dict[str, Any]:
     rep = pick_representative(members)
     times = [t for t in (article_time(m) for m in members) if t]
@@ -729,8 +1060,11 @@ def build_story(members: list[dict[str, Any]], now: datetime) -> dict[str, Any]:
     score = (1.0 + 2.2 * math.log2(len(outlets))) * (0.35 + 0.65 * recency)
     leans = sorted({m.get("lean") for m in members if m.get("lean")})
     rep_time = article_time(rep)
+    source_regions = {m["region"] for m in members}
+    target, target_basis = story_target(members)
     return {
-        "id": rep["id"],
+        # 사건 ID 는 대표 기사와 별개다. 대장(registry)이 실행 간에 이어 준다 (assign_story_ids).
+        "id": provisional_story_id(members),
         # 카드에 보이는 제목·링크·언론사·시각은 모두 대표 기사 하나에서 온다
         "title": rep["title"],
         "url": rep["url"],
@@ -739,12 +1073,18 @@ def build_story(members: list[dict[str, Any]], now: datetime) -> dict[str, Any]:
         "published_at": iso(rep_time),
         "time_basis": rep.get("time_basis"),
         "rep_article_id": rep["id"],
-        "region": rep["region"],
+        "rep_basis": representative_basis(rep, latest),
+        # region: 주요 뉴스 할당 구분(사건 대상 기준). source_region: 보도 언론사 소재.
+        "region": quota_bucket(target),
+        "target_region": target,
+        "target_basis": target_basis,
+        "source_region": source_regions.pop() if len(source_regions) == 1 else "mixed",
         "section": rep["section"],
         "category": category,
         "category_label": CATEGORIES.get(category, category),
         "latest_reported_at": iso(latest),
         "first_reported_at": iso(earliest),
+        "span_hours": round((latest - earliest).total_seconds() / 3600, 2) if times else None,
         "outlet_count": len(outlets),
         "article_count": len(members),
         "undated_article_count": sum(1 for m in members if not article_time(m)),
@@ -753,6 +1093,8 @@ def build_story(members: list[dict[str, Any]], now: datetime) -> dict[str, Any]:
         "low_value": all(is_low_value(m) for m in members),
         # 사건 단위 AI 허용: 구성 기사가 전부 허용일 때만. 실제 요청 직전에 outlets.ai_gate 로 재검사한다.
         "ai_ok": all(bool(m.get("ai_ok")) for m in members),
+        "issue_id": None,
+        "issue_size": 1,
         # Claude 편집 단계가 채우는 필드 (없으면 화면은 원문 제목·요약을 보여준다)
         "title_ko": None,
         "summary_ko": None,
@@ -760,31 +1102,165 @@ def build_story(members: list[dict[str, Any]], now: datetime) -> dict[str, Any]:
     }
 
 
-def select_top(stories: list[dict[str, Any]], total: int = TOP_TOTAL) -> list[dict[str, Any]]:
-    """국내/해외 비중과 분야별 상한을 지키며 점수 순으로 고른다."""
+# ---------------------------------------------------------------- 사건 ID 대장
+#
+# 대장(state/story_registry.json): 기사 ID → 사건 ID, 사건 ID → 생성 시각.
+# 매 실행 묶음 결과를 대장과 맞춰 ID 를 이어 준다.
+#   - 묶음의 기사들이 이전에 속했던 사건 ID 중 가장 많은 기사가 속했던 것을 물려받는다.
+#     (동수면 먼저 생긴 사건). 대표 기사가 바뀌어도 ID 는 그대로다.
+#   - 합쳐짐: 이전 사건 여러 개의 기사가 한 묶음에 모이면, 다수 쪽 ID 를 유지하고
+#     나머지는 merged_from 에 기록한다 (대장에는 merged_into 로 남김).
+#   - 나뉨: 이전 사건 하나의 기사가 여러 묶음으로 흩어지면, 가장 많이 가져간 묶음이 ID 를 유지하고
+#     나머지는 새 ID 와 split_from 을 받는다.
+#   - 처음 보는 묶음은 seed 기사에서 만든 임시 ID 를 새 사건 ID 로 등록한다.
+
+
+def assign_story_ids(stories: list[dict[str, Any]], registry: dict[str, Any], now_iso: str) -> dict[str, int]:
+    arts = registry.setdefault("articles", {})
+    meta = registry.setdefault("stories", {})
+    claims = []  # (기사 수, -생성시각 순위, 사건 인덱스, 이전 ID)
+    prev_by_story: list[Counter] = []
+    for i, s in enumerate(stories):
+        prev = Counter(arts[a["id"]] for a in s["articles"] if a["id"] in arts)
+        prev_by_story.append(prev)
+        for sid, n in prev.items():
+            claims.append((n, meta.get(sid, {}).get("created_at", "~"), i, sid))
+    # 기사 수 많은 순, 같으면 먼저 생긴 사건 순
+    claims.sort(key=lambda c: (-c[0], c[1]))
+    assigned: dict[int, str] = {}
+    used: set[str] = set()
+    for _, _, i, sid in claims:
+        if i in assigned or sid in used:
+            continue
+        assigned[i] = sid
+        used.add(sid)
+    stats = Counter()
+    for i, s in enumerate(stories):
+        prev = prev_by_story[i]
+        if i in assigned:
+            s["id"] = assigned[i]
+            stats["kept"] += 1
+        else:
+            sid = s["id"]
+            while sid in used:  # 임시 ID 충돌 (드묾)
+                sid = "s_" + hashlib.sha1(sid.encode()).hexdigest()[:12]
+            s["id"] = sid
+            used.add(sid)
+            meta.setdefault(sid, {"created_at": now_iso})
+            stats["new"] += 1
+            if prev:  # 이전 사건의 일부가 떨어져 나와 새 사건이 됨
+                s["lineage"] = {"split_from": prev.most_common(1)[0][0]}
+                stats["split"] += 1
+        merged = [sid for sid in prev if sid != s["id"]]
+        if merged and i in assigned:
+            s.setdefault("lineage", {})["merged_from"] = sorted(merged)
+            stats["merged"] += 1
+            for sid in merged:
+                if sid not in used:
+                    meta.setdefault(sid, {})["merged_into"] = s["id"]
+        meta.setdefault(s["id"], {"created_at": now_iso})
+        s["created_at"] = meta[s["id"]].get("created_at", now_iso)
+        for a in s["articles"]:
+            arts[a["id"]] = s["id"]
+    return dict(stats)
+
+
+def prune_registry(registry: dict[str, Any], keep_article_ids: set[str]) -> None:
+    arts = registry.get("articles", {})
+    for aid in [a for a in arts if a not in keep_article_ids]:
+        del arts[aid]
+    live = set(arts.values())
+    meta = registry.get("stories", {})
+    for sid in [s for s in meta if s not in live and not meta[s].get("merged_into")]:
+        del meta[sid]
+
+
+def assign_issues(stories: list[dict[str, Any]], issue_of: list[int]) -> list[dict[str, Any]]:
+    """같은 이슈 번호의 사건들에 안정적인 이슈 ID 를 붙이고, 2개 이상인 이슈 목록을 돌려준다."""
+    members: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for s, k in zip(stories, issue_of):
+        members[k].append(s)
+    issues = []
+    for group in members.values():
+        anchor = min(group, key=lambda s: (s.get("created_at") or "~", s["id"]))
+        iid = "i_" + anchor["id"][2:]
+        for s in group:
+            s["issue_id"] = iid
+            s["issue_size"] = len(group)
+        if len(group) > 1:
+            lead = max(group, key=lambda s: s["score"])
+            issues.append(
+                {
+                    "id": iid,
+                    "title": lead["title"],
+                    "story_ids": [s["id"] for s in sorted(group, key=lambda s: -s["score"])],
+                    "region": lead["region"],
+                }
+            )
+    return issues
+
+
+# ---------------------------------------------------------------- 주요 뉴스 선정
+
+# 같은 이슈(관련 사건 묶음)가 주요 뉴스에서 차지할 수 있는 최대 칸 수
+ISSUE_CAP_TOP = 2
+
+
+def select_top(
+    stories: list[dict[str, Any]],
+    total: int = TOP_TOTAL,
+    report: dict[str, Any] | None = None,
+    cap_ratio: float = CATEGORY_CAP,
+    issue_cap: int = ISSUE_CAP_TOP,
+) -> list[dict[str, Any]]:
+    """사건 대상 지역 기준 국내/해외 할당을 점수 순으로 채운다.
+
+    - 분야 상한: 할당 × cap_ratio 의 내림(floor). 상한을 넘기는 채우기는 하지 않는다.
+      예외: 해외 할당의 '국제'(world) 분류. 해외 피드는 거의 모두 이 분류라 상한을 걸면 후보가 사라진다.
+    - 이슈 상한: 같은 이슈의 사건은 issue_cap 칸까지 (국내·해외 합산).
+    - 후보가 모자라면 적게 고르고 report 에 부족 사유를 남긴다.
+    """
+    report = report if report is not None else {}
     picked: list[dict[str, Any]] = []
+    per_issue: Counter[str] = Counter()
     for region, share in REGION_SHARE.items():
         quota = round(total * share)
-        cap = max(2, math.ceil(quota * CATEGORY_CAP))
+        cap = math.floor(quota * cap_ratio)
         per_cat: Counter[str] = Counter()
+        skipped: Counter[str] = Counter()
         pool = [s for s in stories if s["region"] == region and s["section"] == "news" and not s["low_value"]]
-        pool.sort(key=lambda s: s["score"], reverse=True)
+        pool.sort(key=lambda s: (-s["score"], s["id"]))
         chosen: list[dict[str, Any]] = []
         for s in pool:
             if len(chosen) >= quota:
                 break
-            # 해외 피드는 대부분 '국제' 분류라 상한을 걸면 남는 자리를 가벼운 기사가 채운다
             exempt = region == "intl" and s["category"] == "world"
             if not exempt and per_cat[s["category"]] >= cap:
+                skipped["category_cap:" + s["category"]] += 1
+                continue
+            issue = s.get("issue_id") or s["id"]
+            if per_issue[issue] >= issue_cap:
+                skipped["issue_cap"] += 1
                 continue
             chosen.append(s)
             per_cat[s["category"]] += 1
-        # 상한 때문에 모자라면 남은 것 중 점수 순으로 채움
-        if len(chosen) < quota:
-            rest = [s for s in pool if s not in chosen]
-            chosen.extend(rest[: quota - len(chosen)])
+            per_issue[issue] += 1
+        shortfall = quota - len(chosen)
+        report[region] = {
+            "quota": quota,
+            "selected": len(chosen),
+            "shortfall": shortfall,
+            "category_cap": cap,
+            "category_cap_exempt": ["world"] if region == "intl" else [],
+            "by_category": dict(per_cat),
+            "skipped": dict(skipped),
+            "candidates": len(pool),
+            "reason": None if shortfall <= 0 else (
+                "후보 부족" if len(pool) < quota else "분야·이슈 상한 때문에 남은 후보로 채울 수 없음"
+            ),
+        }
         picked.extend(chosen)
-    picked.sort(key=lambda s: s["score"], reverse=True)
+    picked.sort(key=lambda s: (-s["score"], s["id"]))
     return picked
 
 
@@ -881,6 +1357,98 @@ def summarize_sources(statuses: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def load_story_registry(state_dir: Path, site_url: str) -> tuple[dict[str, Any], str]:
+    """사건 ID 대장. 캐시 → 배포된 news.json(기사→사건 대응) → 새로 시작."""
+    p = state_dir / "story_registry.json"
+    if p.exists():
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+            return {"articles": data.get("articles", {}), "stories": data.get("stories", {})}, "cache"
+        except Exception:  # noqa: BLE001
+            pass
+    deployed = fetch_site_json(site_url, "data/news.json")
+    if deployed:
+        reg: dict[str, Any] = {"articles": {}, "stories": {}}
+        for st in deployed.get("news", []) + deployed.get("science", []):
+            sid = st.get("id", "")
+            if not sid.startswith("s_"):
+                continue  # 이전 형식(대표 기사 ID 를 사건 ID 로 쓰던 때)은 이어받지 않는다
+            reg["stories"][sid] = {"created_at": st.get("created_at") or deployed.get("generated_at")}
+            for a in st.get("articles", []):
+                reg["articles"][a["id"]] = sid
+        if reg["articles"]:
+            return reg, "site"
+    return {"articles": {}, "stories": {}}, "none"
+
+
+PUBLISHED_NEWS_LIMIT = 600
+
+
+def compose(
+    archive: dict[str, dict[str, Any]], now: datetime, top_n: int, registry: dict[str, Any]
+) -> dict[str, Any]:
+    """아카이브 → 사건·이슈·주요 뉴스. 네트워크를 쓰지 않으므로 같은 표본에 다시 돌려 비교할 수 있다."""
+    now_iso = iso(now)
+    news_after = now - timedelta(hours=NEWS_WINDOW_HOURS)
+    sci_after = now - timedelta(days=SCIENCE_WINDOW_DAYS)
+    journal_after = now - timedelta(days=JOURNAL_WINDOW_DAYS)
+    news_recs, sci_recs = [], []
+    news_undated, sci_undated = [], []
+    for rec in archive.values():
+        t = article_time(rec)
+        if t is not None and t > now + FUTURE_TOLERANCE:
+            t = None  # 이전 형식 기록 등에 남은 미래 시각은 미상으로 취급
+        is_sci = rec["section"] == "science"
+        if t is None:
+            # 시각 미상: 이번 실행에 피드에 실제로 있었던 것만 '함께 보도' 후보로 쓴다
+            if rec.get("last_seen_at") == now_iso:
+                (sci_undated if is_sci else news_undated).append(rec)
+            continue
+        if is_sci:
+            # 월간·주간 학술지는 7일 창에 걸려 사라지지 않도록 31일까지 본다
+            limit = journal_after if rec.get("outlet") in JOURNAL_OUTLETS else sci_after
+            if t >= limit:
+                sci_recs.append(rec)
+        elif t >= news_after:
+            news_recs.append(rec)
+
+    cluster_stats: Counter[str] = Counter()
+    news_groups, news_left, news_idf = cluster_detail(news_recs, news_undated, cluster_stats)
+    sci_groups, sci_left, _ = cluster_detail(sci_recs, sci_undated, Counter())
+    news_stories = [build_story(g["members"], now) for g in news_groups]
+    sci_stories = [build_story(g["members"], now) for g in sci_groups]
+    id_stats = assign_story_ids(news_stories + sci_stories, registry, now_iso)
+    issues = assign_issues(news_stories, link_issues(news_groups, news_idf))
+    for st in sci_stories:
+        st["issue_id"] = "i_" + st["id"][2:]
+    prune_registry(registry, set(archive))
+
+    news_stories.sort(key=lambda s: (-s["score"], s["id"]))
+    # 과학은 묶기만 하고, 매체별로 번갈아 최신순 배치 (국내 전기 매체가 저널을 덮지 않도록)
+    sci_stories = interleave_by_outlet(sci_stories)
+    selection: dict[str, Any] = {}
+    top = select_top(news_stories, top_n, selection)
+    top_ids = {s["id"] for s in top}
+    visible = [s for s in news_stories if not s["low_value"]]
+    published = [s for i, s in enumerate(visible) if i < PUBLISHED_NEWS_LIMIT or s["id"] in top_ids]
+    return {
+        "news_recs": news_recs,
+        "sci_recs": sci_recs,
+        "news_undated": news_undated,
+        "sci_undated": sci_undated,
+        "undated_left": news_left + sci_left,
+        "news_stories": news_stories,
+        "sci_stories": sci_stories,
+        "visible_news": visible,
+        "published_news": published,
+        "top": top,
+        "selection": selection,
+        "issues": issues,
+        "cluster_stats": dict(cluster_stats),
+        "id_stats": id_stats,
+    }
+
+
 # ---------------------------------------------------------------- main
 
 
@@ -945,40 +1513,13 @@ def main() -> int:
     refresh_policy(archive, table)
     archive = prune_archive(archive, now, ARCHIVE_DAYS)
 
-    news_after = now - timedelta(hours=NEWS_WINDOW_HOURS)
-    sci_after = now - timedelta(days=SCIENCE_WINDOW_DAYS)
-    journal_after = now - timedelta(days=JOURNAL_WINDOW_DAYS)
-    news_recs, sci_recs = [], []
-    news_undated, sci_undated = [], []
-    for rec in archive.values():
-        t = article_time(rec)
-        if t is not None and t > now + FUTURE_TOLERANCE:
-            t = None  # 이전 형식 기록 등에 남은 미래 시각은 미상으로 취급
-        is_sci = rec["section"] == "science"
-        if t is None:
-            # 시각 미상: 이번 실행에 피드에 실제로 있었던 것만 '함께 보도' 후보로 쓴다
-            if rec.get("last_seen_at") == now_iso:
-                (sci_undated if is_sci else news_undated).append(rec)
-            continue
-        if is_sci:
-            # 월간·주간 학술지는 7일 창에 걸려 사라지지 않도록 31일까지 본다
-            limit = journal_after if rec.get("outlet") in JOURNAL_OUTLETS else sci_after
-            if t >= limit:
-                sci_recs.append(rec)
-        elif t >= news_after:
-            news_recs.append(rec)
-
-    news_groups, news_left = cluster_with_undated(news_recs, news_undated)
-    sci_groups, sci_left = cluster_with_undated(sci_recs, sci_undated)
-    news_stories = [build_story(g, now) for g in news_groups]
-    news_stories.sort(key=lambda s: s["score"], reverse=True)
-    # 과학은 묶기만 하고, 매체별로 번갈아 최신순 배치 (국내 전기 매체가 저널을 덮지 않도록)
-    sci_stories = interleave_by_outlet([build_story(g, now) for g in sci_groups])
-    undated_left = news_left + sci_left
-
-    top = select_top(news_stories, args.top)
+    registry, registry_from = load_story_registry(state_dir, args.site_url)
+    out = compose(archive, now, args.top, registry)
+    news_recs, sci_recs = out["news_recs"], out["sci_recs"]
+    news_stories, sci_stories, top = out["news_stories"], out["sci_stories"], out["top"]
+    news_undated, sci_undated, undated_left = out["news_undated"], out["sci_undated"], out["undated_left"]
     top_ids = [s["id"] for s in top]
-    visible_news = [s for s in news_stories if not s["low_value"]]
+    visible_news = out["visible_news"]
     src_summary = summarize_sources(statuses)
 
     payload = {
@@ -995,8 +1536,13 @@ def main() -> int:
             "cache_restored": cache_restored,
             "source_history_from": history_source,
         },
-        "news": visible_news[:600],
+        # 주요 뉴스로 뽑힌 사건은 600건 제한과 관계없이 항상 포함한다
+        "news": out["published_news"],
         "science": sci_stories[:150],
+        # 관련 사건이 2개 이상인 이슈. 각 사건은 issue_id 로 연결된다.
+        "issues": out["issues"],
+        # 주요 뉴스 할당별 선정 결과와 부족 사유
+        "selection": out["selection"],
         # 시각 미상이고 어느 사건에도 붙지 않은 기사: 순위·최신 목록에 넣지 않고 따로 둔다
         "undated": [public_article(m) for m in sorted(undated_left, key=lambda r: r["outlet"])][:200],
         "counts": {
@@ -1018,6 +1564,8 @@ def main() -> int:
             "archive_new": merge_stats.get("new", 0),
             "archive_changed": merge_stats.get("changed", 0),
             "ai_allowed_articles": sum(1 for r in archive.values() if r.get("ai_ok")),
+            "cluster_blocked": out["cluster_stats"],
+            "story_ids": out["id_stats"],
         },
     }
     status = {
@@ -1037,6 +1585,7 @@ def main() -> int:
         archive_path,
         {"schema": ARCHIVE_SCHEMA, "generated_at": now_iso, "started_at": started_at, "items": list(archive.values())},
     )
+    write_json_atomic(state_dir / "story_registry.json", {"generated_at": now_iso, **registry})
     write_json_atomic(
         state_dir / "source_history.json",
         {"generated_at": now_iso, "sources": {s["url"]: s["history"] for s in statuses if s.get("history")}},
@@ -1054,7 +1603,9 @@ def main() -> int:
     for key in ("failed", "empty", "stale", "disabled"):
         if src_summary[key]:
             print(f"{key}:", ", ".join(src_summary[key]))
-    print(f"archive since {started_at} (cache restored: {cache_restored}, source history: {history_source})")
+    print(f"archive since {started_at} (cache restored: {cache_restored}, source history: {history_source}, story registry: {registry_from})")
+    print(f"stories ids {out['id_stats']} | merge blocked {out['cluster_stats']} | issues {len(out['issues'])} | selection " +
+          json.dumps({k: (v['selected'], v['quota'], v['reason']) for k, v in out['selection'].items()}, ensure_ascii=False))
     return 0
 
 

@@ -258,9 +258,10 @@ def test_card_fields_come_from_one_representative_article():
         rep["outlet"],
         rep["published_at"],
     )
-    assert s["outlet"] == "연합뉴스"
-    # 사건의 최신 보도 시각은 대표 기사 시각과 별도로 보존
-    assert s["latest_reported_at"] == members[2]["published_at"] != s["published_at"]
+    # 3단계: 요약·시각 신뢰도가 같으면 새 전개(가장 최근 기사)를 반영한 기사가 대표. 언론사 순위는 동점일 때만.
+    assert s["outlet"] == "경향신문"
+    assert s["latest_reported_at"] == members[2]["published_at"] == s["published_at"]
+    assert s["first_reported_at"] == members[1]["published_at"]
 
 
 # ---------------------------------------------------------------- 3. 같은 URL 갱신
