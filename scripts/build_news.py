@@ -417,6 +417,8 @@ def load_archive(path: Path, table: PolicyTable) -> dict[str, dict[str, Any]]:
         if not it.get("url"):
             continue
         rec = migrate_record(it, table) if schema < ARCHIVE_SCHEMA else it
+        if rec.get("section") == "taste":  # 4단계 섹션 이름 → 테마
+            rec["section"] = "theme"
         prev = out.get(rec["id"])
         # ID 규칙이 바뀌어 합쳐지는 경우 먼저 본 기록의 최초 수집 시각을 남긴다
         if prev and (prev.get("first_seen_at") or "") <= (rec.get("first_seen_at") or "~"):
@@ -1395,8 +1397,8 @@ def compose(
     news_recs, sci_recs = [], []
     news_undated, sci_undated = [], []
     for rec in archive.values():
-        if rec["section"] == "taste":
-            continue  # 취향 탭 후보 전용 피드는 주요 뉴스·과학 탭에 넣지 않는다
+        if rec["section"] == "theme":
+            continue  # 테마 탭 후보 전용 피드는 주요 뉴스·과학 탭에 넣지 않는다
         t = article_time(rec)
         if t is not None and t > now + FUTURE_TOLERANCE:
             t = None  # 이전 형식 기록 등에 남은 미래 시각은 미상으로 취급
@@ -1451,31 +1453,36 @@ def compose(
     }
 
 
-def build_taste(
-    archive: dict[str, dict[str, Any]], now: datetime, out_dir: Path, state_dir: Path, profile_path: str = ""
+def build_theme(
+    archive: dict[str, dict[str, Any]], now: datetime, out_dir: Path, state_dir: Path, config_path: str = ""
 ) -> str:
-    """취향 탭 데이터. 실패해도 뉴스 배포를 막지 않도록 오류를 taste.json 에 남기고 계속한다."""
-    import taste
+    """테마 탭 데이터. 실패해도 뉴스 배포를 막지 않도록 오류를 theme.json 에 남기고 계속한다."""
+    import theme
 
     now_iso = iso(now)
     try:
-        prof = taste.load_profile(Path(profile_path) if profile_path else None)
-        store_path = state_dir / "taste_candidates.json"
-        store = taste.load_store(store_path)
+        conf = theme.load_config(Path(config_path) if config_path else None)
+        store_path = state_dir / "theme_candidates.json"
+        legacy_store = state_dir / "taste_candidates.json"  # 4단계 이름. 읽은 뒤 새 이름으로 저장하고 지운다.
+        store = theme.load_store(store_path, legacy_store)
         recs = [r for r in archive.values() if r.get("time_basis") not in ("unknown", "invalid_future")]
-        stats = taste.update_store(store, recs, prof, now, now_iso, parse_iso)
-        result = taste.select(
-            prof, list(store["items"].values()), now, parse_iso, lambda rs: cluster_with_undated(rs, [])[0], title_tokens
+        stats = theme.update_store(store, recs, conf, now, now_iso, parse_iso)
+        result = theme.select(
+            conf, list(store["items"].values()), now, parse_iso, lambda rs: cluster_with_undated(rs, [])[0], title_tokens
         )
-        payload = taste.build_payload(prof, result, store, now_iso)
-        write_json_atomic(out_dir / "taste.json", sanitize_public_payload(payload))
+        payload = theme.build_payload(conf, result, store, now_iso)
+        write_json_atomic(out_dir / "theme.json", sanitize_public_payload(payload))
         write_json_atomic(
             store_path, {"generated_at": now_iso, "started_at": store["started_at"], "items": list(store["items"].values())}
         )
+        for old in (legacy_store, out_dir / "taste.json"):
+            if old.exists():
+                old.unlink()
         kinds = Counter(i["kind"] for i in payload["items"])
-        return f"candidates {stats['total']} (+{stats['added']}) | picked {dict(kinds)} | shortfall {payload['shortfall']}"
+        dropped = f" | dropped config keys {conf['_dropped_keys']}" if conf["_dropped_keys"] else ""
+        return f"candidates {stats['total']} (+{stats['added']}) | picked {dict(kinds)} | shortfall {payload['shortfall']}{dropped}"
     except Exception as exc:  # noqa: BLE001
-        write_json_atomic(out_dir / "taste.json", {"generated_at": now_iso, "items": [], "error": str(exc)[:300]})
+        write_json_atomic(out_dir / "theme.json", {"generated_at": now_iso, "items": [], "error": str(exc)[:300]})
         return f"error: {exc}"
 
 
@@ -1489,7 +1496,10 @@ def main() -> int:
     ap.add_argument("--top", type=int, default=TOP_TOTAL)
     ap.add_argument("--policy", default="", help="언론사 정책 표 (기본: feeds/outlets.json)")
     ap.add_argument("--config", default="", help="품질 기준 (기본: config/quality.json)")
-    ap.add_argument("--taste-profile", default="", help="취향 프로필 (기본: config/taste.json)")
+    ap.add_argument(
+        "--theme-config", "--taste-profile", dest="theme_config", default="",
+        help="테마 편집 설정 (기본: config/themes.json). --taste-profile 은 이전 이름",
+    )
     ap.add_argument(
         "--site-url",
         default=os.environ.get("SITE_URL", ""),
@@ -1542,7 +1552,7 @@ def main() -> int:
         started_at = min((r.get("first_seen_at") for r in archive.values() if r.get("first_seen_at")), default=now_iso)
     merge_stats = merge_into_archive(archive, fetched, now)
     refresh_policy(archive, table)
-    # 취향 후보는 일반 뉴스 보관(3일)으로 잘라내기 전에 넘긴다. 취향 후보는 별도 보관소에서 28일 관리.
+    # 테마 후보는 일반 뉴스 보관(3일)으로 잘라내기 전에 넘긴다. 테마 후보는 별도 보관소에서 28일 관리.
     pre_prune = dict(archive)
     archive = prune_archive(archive, now, ARCHIVE_DAYS)
 
@@ -1619,7 +1629,7 @@ def main() -> int:
         {"schema": ARCHIVE_SCHEMA, "generated_at": now_iso, "started_at": started_at, "items": list(archive.values())},
     )
     write_json_atomic(state_dir / "story_registry.json", {"generated_at": now_iso, **registry})
-    taste_summary = build_taste(pre_prune, now, out_dir, state_dir, args.taste_profile)
+    theme_summary = build_theme(pre_prune, now, out_dir, state_dir, args.theme_config)
     write_json_atomic(
         state_dir / "source_history.json",
         {"generated_at": now_iso, "sources": {s["url"]: s["history"] for s in statuses if s.get("history")}},
@@ -1638,7 +1648,7 @@ def main() -> int:
         if src_summary[key]:
             print(f"{key}:", ", ".join(src_summary[key]))
     print(f"archive since {started_at} (cache restored: {cache_restored}, source history: {history_source}, story registry: {registry_from})")
-    print(f"taste {taste_summary}")
+    print(f"theme {theme_summary}")
     print(f"stories ids {out['id_stats']} | merge blocked {out['cluster_stats']} | issues {len(out['issues'])} | selection " +
           json.dumps({k: (v['selected'], v['quota'], v['reason']) for k, v in out['selection'].items()}, ensure_ascii=False))
     return 0

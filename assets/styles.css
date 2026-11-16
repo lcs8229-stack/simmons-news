@@ -377,7 +377,7 @@ main {
   font-weight: 600;
 }
 
-/* 취향 탭 */
+/* 테마 탭 */
 .tabs button {
   white-space: nowrap;
   font-size: 15px;
@@ -389,7 +389,7 @@ main {
   border: 1px solid currentColor;
 }
 
-.kind-interest { color: var(--accent); }
+.kind-topic { color: var(--accent); }
 .kind-broaden { color: var(--c-culture); }
 
 .tags {

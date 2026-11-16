@@ -1,6 +1,6 @@
 # 시몬스 뉴스
 
-네이버 뉴스 앱 대신 매일 보는 개인 뉴스 페이지입니다.
+공개 뉴스 큐레이션 사이트입니다.
 정치·경제·사회·문화·국제 주요 뉴스를 **국내 60% / 해외 40%** 비중으로 고르고,
 과학 저널과 전기·에너지 전문지 소식을 별도 탭으로 보여줍니다.
 
@@ -21,11 +21,11 @@ scripts/source_health.py 소스 상태 판정(요청·파싱·유효·최근)과
 scripts/quality_gate.py 배포 전 품질 검사 (기준: config/quality.json)
 docs/OPERATIONS.md      운영 안내: 상태 정의, 배포 보류 기준, 캐시 유실·예약 중단 복구, 외부 감시
 docs/SELECTION.md       사건 묶기·관련 이슈·사건 ID·대상 지역·대표 기사·주요 뉴스 선정 규칙
-scripts/taste.py        취향 탭: 프로필 기반 판단·28일 후보 보관·선정 (config/taste.json)
-docs/TASTE.md           취향 탭 규칙, 5단계 AI 검토 항목, 한계
+scripts/theme.py        테마 탭: 주제 관련도 판단·28일 후보 보관·선정 (config/themes.json)
+docs/THEMES.md          테마 탭 규칙, 5단계 AI 검토 항목, 한계
 tools/compare_selection.py 같은 기사 표본에 이전·현재 선정 방식을 적용해 비교
 scripts/build_news.py   수집 → 아카이브 → 사건 묶기 → 점수 → 60:40 선정 → data/news.json
-index.html, assets/     화면 (주요 / 국내 / 해외 / 과학·전기 / 취향 탭, 분야 필터, 검색)
+index.html, assets/     화면 (주요 / 국내 / 해외 / 과학·전기 / 테마 탭, 분야 필터·주제 선택, 검색)
 .github/workflows/      매시간 수집·배포
 ```
 
@@ -84,11 +84,11 @@ index.html, assets/     화면 (주요 / 국내 / 해외 / 과학·전기 / 취�
 - 국내 60 / 해외 40 은 사건 대상 지역 기준입니다(`target_region`). 분야 상한은 할당의 40% 내림이며 넘겨 채우지 않습니다.
 - 비교: `python tools/compare_selection.py --archive data/archive.json --old <이전 build_news.py>`
 
-## 취향 탭 (4단계)
+## 테마 탭 (4단계)
 
-자세한 내용은 [`docs/TASTE.md`](docs/TASTE.md). 프로필은 [`config/taste.json`](config/taste.json) 한곳에서 고칩니다.
+자세한 내용은 [`docs/THEMES.md`](docs/THEMES.md). 주제 목록과 기준은 [`config/themes.json`](config/themes.json) 한곳에서 고칩니다.
 
-- 관심 분야 6건 + 시야 넓히기 4건(기본값), 최근 28일 후보를 따로 보관. 기준 미달이면 채우지 않습니다.
+- 선택된 주제와 기사 관련도를 기준으로 주제 기사 6건 + 시야 넓히기 4건(기본값)을 고르고, 최근 28일 후보를 따로 보관합니다. 기준 미달이면 채우지 않습니다.
 - 관련도·글의 성격·출처·최신성·감점·중복을 따로 판단하는 규칙 기반이며 API 키가 필요 없습니다.
 - 카드는 원문 제목·원출처 링크·매체·발행일·태그만 보여주고 번역·요약은 넣지 않습니다.
 
@@ -109,7 +109,7 @@ python -m http.server 8080   # http://localhost:8080
 2. Settings → Pages → Source 를 **GitHub Actions** 로 바꿉니다.
 3. Actions 탭에서 `Update and deploy` 를 한 번 수동 실행합니다. 이후 매시간 자동 실행됩니다.
 
-무료 Pages 는 공개 페이지입니다. 주소를 아는 사람은 누구나 볼 수 있습니다 (개인 정보는 없음).
+무료 Pages 는 공개 페이지입니다. 주소를 아는 사람은 누구나 볼 수 있습니다.
 
 ## 소스 추가
 

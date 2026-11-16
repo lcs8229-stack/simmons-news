@@ -1,12 +1,12 @@
-"""4단계: 취향 프로필 판단·후보 보관·독립 선정."""
+"""4단계: 테마 탭 — 주제 관련도 판단·후보 보관·독립 선정."""
 
 from datetime import datetime, timedelta, timezone
 
 from scripts import build_news as bn
-from scripts import taste
+from scripts import theme
 
 NOW = datetime(2026, 11, 16, 12, 0, tzinfo=timezone.utc)
-PROF = taste.load_profile()
+CONF = theme.load_config()
 
 
 def rec(title, outlet="조선일보", days_ago=1.0, summary="", region="kr", section="news", category="general", lean=""):
@@ -20,19 +20,19 @@ def rec(title, outlet="조선일보", days_ago=1.0, summary="", region="kr", sec
 
 
 def ev(r):
-    return taste.evaluate(PROF, r, NOW, bn.parse_iso(r["published_at"]))
+    return theme.evaluate(CONF, r, NOW, bn.parse_iso(r["published_at"]))
 
 
 def select(cands):
-    return taste.select(PROF, cands, NOW, bn.parse_iso, lambda rs: bn.cluster_with_undated(rs, [])[0], bn.title_tokens)
+    return theme.select(CONF, cands, NOW, bn.parse_iso, lambda rs: bn.cluster_with_undated(rs, [])[0], bn.title_tokens)
 
 
 # ---------------------------------------------------------------- 판단
 
 
-def test_single_keyword_mention_is_not_interest():
+def test_single_keyword_mention_is_not_topic_article():
     e = ev(rec("구청, 주민 대상 인공지능 교실 개최"))
-    assert e["best_topic"] is None  # '인공지능' 한 번만으로는 관심 글이 아니다
+    assert e["best_topic"] is None  # '인공지능' 한 번만으로는 주제 기사가 아니다
     e = ev(rec("AI 투자 급증이 데이터센터 전력망에 주는 부담", summary="전력 수요가 송전망 병목을 키운다"))
     assert e["best_topic"] == "ai_infra" and "전력망" in e["relevance"]["ai_infra"]["concepts"]
 
@@ -50,7 +50,7 @@ def test_critical_analysis_is_kept_not_penalized():
 
 def test_specialist_outlet_counts_as_one_concept_only():
     alone = ev(rec("Glamsterdam", outlet="Ethereum Foundation", region="intl"))
-    assert alone["best_topic"] is None  # 전문 매체라는 사실만으로는 관심 글 아님
+    assert alone["best_topic"] is None  # 전문 매체라는 사실만으로는 주제 기사 아님
     with_concept = ev(rec("EIP-8037: rollup data costs", outlet="Ethereum Foundation", region="intl"))
     assert with_concept["best_topic"] == "crypto"
 
@@ -64,13 +64,13 @@ def test_penalties_for_price_moves_promo_and_listings():
 
 def test_depth_unknown_when_no_material():
     e = ev(rec("유럽의회, 제재 결의"))
-    assert e["nature"]["depth"] == "unknown" and e["nature"]["score"] == PROF["nature"]["unknown_depth_score"]
+    assert e["nature"]["depth"] == "unknown" and e["nature"]["score"] == CONF["nature"]["unknown_depth_score"]
 
 
 def test_political_lean_is_not_used():
     a = ev(rec("민주주의 제도와 외교 안보 동맹의 재편", lean="progressive"))
     b = ev(rec("민주주의 제도와 외교 안보 동맹의 재편", lean="conservative"))
-    assert a["interest_score"] == b["interest_score"]
+    assert a["topic_score"] == b["topic_score"]
 
 
 # ---------------------------------------------------------------- 보관
@@ -81,11 +81,11 @@ def test_store_keeps_only_window_and_does_not_invent_history():
     recs = [
         rec("AI 데이터센터 전력망 병목 분석", days_ago=3),
         rec("AI 데이터센터 전력망 병목 오래된 분석", days_ago=40),  # 28일 밖
-        rec("구청 행사 안내", days_ago=1),  # 관심 개념 없음 → 보관 안 함
+        rec("구청 행사 안내", days_ago=1),  # 주제 개념 없음 → 보관 안 함
     ]
-    stats = taste.update_store(store, recs, PROF, NOW, bn.iso(NOW), bn.parse_iso)
+    stats = theme.update_store(store, recs, CONF, NOW, bn.iso(NOW), bn.parse_iso)
     assert stats["total"] == 1 and store["started_at"] == bn.iso(NOW)
-    payload = taste.build_payload(PROF, select(list(store["items"].values())), store, bn.iso(NOW))
+    payload = theme.build_payload(CONF, select(list(store["items"].values())), store, bn.iso(NOW))
     # 실제로 확보한 가장 오래된 후보만 보고한다 (28일 전부터 있다고 가정하지 않음)
     assert payload["coverage"]["oldest_candidate"] == recs[0]["published_at"]
 
@@ -97,7 +97,7 @@ def test_no_forced_fill_and_shortfall_reported():
     res = select([rec("AI 데이터센터 전력망 병목과 송전 투자 구조 분석", outlet="IEEE Spectrum", region="intl",
                       summary="Why grid interconnection queues limit AI data center growth, with data " * 2)])
     assert len(res["picked"]) == 1
-    assert res["shortfall"] == {"interest": 5, "broaden": 4}
+    assert res["shortfall"] == {"topic": 5, "broaden": 4}
     assert res["topic_stats"]["crypto"]["short"] is True
 
 
@@ -107,10 +107,10 @@ def test_diversity_one_per_topic_first_and_outlet_cap():
              for i in range(5)]
     cands.append(rec("이더리움 롤업 수수료 구조와 가치 귀속 분석", outlet="Ethereum Foundation", region="intl", summary=long))
     res = select(cands)
-    interest = [p for p in res["picked"] if p["kind"] == "interest"]
-    topics = [p["area"] for p in interest]
+    topic_picks = [p for p in res["picked"] if p["kind"] == "topic"]
+    topics = [p["area"] for p in topic_picks]
     assert "crypto" in topics  # 점수가 낮아도 다른 주제가 먼저 한 자리를 얻는다
-    assert sum(1 for p in res["picked"] if p["rec"]["outlet"] == "디일렉") <= PROF["diversity"]["max_per_outlet"]
+    assert sum(1 for p in res["picked"] if p["rec"]["outlet"] == "디일렉") <= CONF["diversity"]["max_per_outlet"]
 
 
 def test_same_story_or_republished_title_picked_once():
@@ -130,3 +130,40 @@ def test_region_quota_not_enforced():
     ]
     res = select(cands)
     assert len(res["picked"]) == 3 and all(p["rec"]["region"] == "intl" for p in res["picked"])
+
+
+# ---------------------------------------------------------------- 명칭 변경 호환
+
+
+def test_legacy_config_keys_are_read_and_unknown_fields_dropped():
+    raw = {
+        "version": "x", "composition": {"interest": 6, "broaden": 4}, "weights": {"interest": {"a": 1}},
+        "thresholds": {"interest": 0.5}, "diversity": {"max_per_topic_interest": 2},
+        "unexpected_field": {"k": "v"},  # 허용 목록에 없는 최상위 항목
+    }
+    conf, dropped = theme.normalize_config(raw)
+    assert conf["composition"] == {"topic": 6, "broaden": 4}
+    assert conf["weights"] == {"topic": {"a": 1}} and conf["thresholds"] == {"topic": 0.5}
+    assert conf["diversity"] == {"max_per_topic": 2}
+    assert "unexpected_field" not in conf and dropped == ["unexpected_field"]
+
+
+def test_shipped_config_has_only_editorial_keys():
+    import json
+    from pathlib import Path
+
+    raw = json.loads((Path(__file__).resolve().parents[1] / "config" / "themes.json").read_text(encoding="utf-8"))
+    assert set(raw) <= theme.ALLOWED_CONFIG_KEYS
+    assert CONF["_dropped_keys"] == []
+
+
+def test_legacy_candidate_store_and_section_are_migrated(tmp_path):
+    import json
+
+    old = tmp_path / "taste_candidates.json"
+    r = rec("AI 데이터센터 전력망 병목", section="taste")
+    r["unrelated"] = "x"
+    old.write_text(json.dumps({"started_at": "2026-11-16T00:00:00Z", "items": [r]}), encoding="utf-8")
+    store = theme.load_store(tmp_path / "theme_candidates.json", old)
+    item = store["items"][r["id"]]
+    assert item["section"] == "theme" and "unrelated" not in item and store["started_at"] == "2026-11-16T00:00:00Z"
