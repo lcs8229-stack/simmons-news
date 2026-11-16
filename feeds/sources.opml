@@ -7,7 +7,7 @@
     text      피드 표시 이름
     outlet    언론사 이름 (사건 묶기에서 "몇 개 언론사가 보도했는지" 셀 때 사용)
     region    kr | intl            (주요 뉴스 60:40 비중 계산 기준)
-    section   news | science       (science 는 "과학·전기" 탭으로 분리)
+    section   news | science | taste  (science 는 "과학·전기" 탭, taste 는 취향 탭 후보 전용)
     category  politics | economy | society | culture | world | northkorea
               | science | energy | general   (general 이면 키워드로 자동 분류)
     lean      progressive | conservative | center (관점 비교용, 선택)
@@ -90,6 +90,30 @@
       <outline text="전기저널 (대한전기협회)" cadence="monthly" outlet="전기저널" region="kr" section="science" category="energy" xmlUrl="https://www.keaj.kr/rss/allArticle.xml"/>
       <outline text="IEEE Trans. Power Systems" outlet="IEEE TPWRS" region="intl" section="science" category="energy" enabled="false" xmlUrl="https://ieeexplore.ieee.org/rss/TOC59.XML"/>
       <outline text="IEEE Trans. Power Electronics" outlet="IEEE TPEL" region="intl" section="science" category="energy" enabled="false" xmlUrl="https://ieeexplore.ieee.org/rss/TOC63.XML"/>
+    </outline>
+    <outline text="취향 (심층·전문·연구기관)">
+      <!-- section="taste": 취향 탭 후보 전용. 주요 뉴스·과학 탭 순위에 섞이지 않는다. 2026-11-16 접속 확인 -->
+      <outline text="MIT Technology Review" outlet="MIT Technology Review" region="intl" section="taste" category="general" cadence="daily" xmlUrl="https://www.technologyreview.com/feed/"/>
+      <outline text="Data Center Dynamics" outlet="Data Center Dynamics" region="intl" section="taste" category="energy" cadence="daily" xmlUrl="https://www.datacenterdynamics.com/en/rss/"/>
+      <outline text="SemiEngineering" outlet="SemiEngineering" region="intl" section="taste" category="science" cadence="daily" xmlUrl="https://semiengineering.com/feed/"/>
+      <outline text="디일렉" outlet="디일렉" region="kr" section="taste" category="economy" cadence="daily" xmlUrl="https://www.thelec.kr/rss/allArticle.xml"/>
+      <outline text="Liberty Street Economics (NY Fed)" outlet="Liberty Street Economics" region="intl" section="taste" category="economy" cadence="weekly" xmlUrl="https://libertystreeteconomics.newyorkfed.org/feed/"/>
+      <outline text="VoxEU (CEPR)" outlet="VoxEU" region="intl" section="taste" category="economy" cadence="weekly" xmlUrl="https://cepr.org/rss/vox-content"/>
+      <outline text="Bruegel" outlet="Bruegel" region="intl" section="taste" category="economy" cadence="weekly" xmlUrl="https://www.bruegel.org/rss.xml"/>
+      <outline text="BIS 중앙은행 연설" outlet="BIS" region="intl" section="taste" category="economy" cadence="weekly" xmlUrl="https://www.bis.org/doclist/cbspeeches.rss"/>
+      <outline text="Ethereum Foundation Blog" outlet="Ethereum Foundation" region="intl" section="taste" category="economy" cadence="weekly" xmlUrl="https://blog.ethereum.org/feed.xml"/>
+      <outline text="Bitcoin Optech" outlet="Bitcoin Optech" region="intl" section="taste" category="economy" cadence="weekly" xmlUrl="https://bitcoinops.org/feed.xml"/>
+      <outline text="Vitalik Buterin" outlet="Vitalik Buterin" region="intl" section="taste" category="economy" cadence="monthly" xmlUrl="https://vitalik.eth.limo/feed.xml"/>
+      <outline text="CoinDesk" outlet="CoinDesk" region="intl" section="taste" category="economy" cadence="daily" xmlUrl="https://www.coindesk.com/arc/outboundfeeds/rss/"/>
+      <outline text="Aeon" outlet="Aeon" region="intl" section="taste" category="culture" cadence="weekly" xmlUrl="https://aeon.co/feed.rss"/>
+      <outline text="Noema" outlet="Noema" region="intl" section="taste" category="culture" cadence="weekly" xmlUrl="https://www.noemamag.com/feed/"/>
+      <outline text="Psyche" outlet="Psyche" region="intl" section="taste" category="culture" cadence="weekly" xmlUrl="https://psyche.co/feed"/>
+      <outline text="The Conversation" outlet="The Conversation" region="intl" section="taste" category="general" cadence="daily" xmlUrl="https://theconversation.com/global/articles.atom"/>
+      <outline text="Dezeen" outlet="Dezeen" region="intl" section="taste" category="culture" cadence="daily" xmlUrl="https://www.dezeen.com/feed/"/>
+      <outline text="War on the Rocks" outlet="War on the Rocks" region="intl" section="taste" category="world" cadence="daily" xmlUrl="https://warontherocks.com/feed/"/>
+      <outline text="Crisis Group" outlet="Crisis Group" region="intl" section="taste" category="world" cadence="weekly" xmlUrl="https://www.crisisgroup.org/rss.xml"/>
+      <outline text="시사IN" outlet="시사IN" region="kr" section="taste" category="general" cadence="weekly" xmlUrl="https://www.sisain.co.kr/rss/allArticle.xml"/>
+      <outline text="한겨레21" outlet="한겨레21" region="kr" section="taste" category="general" cadence="weekly" ai="no" xmlUrl="https://h21.hani.co.kr/rss/"/>
     </outline>
   </body>
 </opml>

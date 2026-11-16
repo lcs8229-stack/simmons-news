@@ -6,7 +6,124 @@ const TAB_NOTES = {
   kr: "국내 언론 보도 · 많이 보도된 순",
   intl: "해외 언론 보도 · 많이 보도된 순",
   science: "과학 저널 · 전기·에너지 전문지 · 최신순",
+  taste: "",
 };
+
+// ---------------------------------------------------------------- 취향 탭
+// 원문 제목·링크·매체·발행일·태그만 보여준다. 번역·요약·해설은 넣지 않는다.
+
+function kstDate(iso) {
+  if (!iso) return "";
+  return new Date(iso).toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit" });
+}
+
+async function loadTaste() {
+  if (state.taste !== undefined) return state.taste;
+  try {
+    const res = await fetch(`./data/taste.json?t=${Date.now()}`);
+    state.taste = res.ok ? await res.json() : null;
+  } catch (_) {
+    state.taste = null;
+  }
+  return state.taste;
+}
+
+function tasteNote(t) {
+  if (!t) return "취향 데이터를 불러오지 못했습니다.";
+  if (t.error) return "취향 선정 중 오류가 있었습니다.";
+  const c = t.coverage || {};
+  const kinds = { interest: 0, broaden: 0 };
+  for (const i of t.items) kinds[i.kind] += 1;
+  let note = `관심 분야 ${kinds.interest}/${t.composition.interest} · 시야 넓히기 ${kinds.broaden}/${t.composition.broaden}`;
+  if (c.oldest_candidate) note += ` · 후보 기간 ${kstDate(c.oldest_candidate)}~ (최근 ${c.window_days}일 기준)`;
+  const short = Object.values(t.topics || {}).filter((x) => x.short).map((x) => x.label);
+  if (short.length) note += ` · 후보 부족: ${short.join(", ")}`;
+  return note;
+}
+
+function tasteFiltered(t) {
+  const q = state.query.trim().toLowerCase();
+  return (t?.items || []).filter((i) => {
+    if (state.category === "interest" || state.category === "broaden") {
+      if (i.kind !== state.category) return false;
+    } else if (state.category !== "all" && i.area_label !== state.category) {
+      return false;
+    }
+    if (!q) return true;
+    return [i.title, i.outlet, ...(i.tags || [])].join(" ").toLowerCase().includes(q);
+  });
+}
+
+function renderTasteChips(t) {
+  const chips = $("chips");
+  chips.replaceChildren();
+  const labels = [];
+  for (const i of t?.items || []) if (!labels.includes(i.area_label)) labels.push(i.area_label);
+  const opts = [["all", "전체"], ["interest", "관심 분야"], ["broaden", "시야 넓히기"], ...labels.map((l) => [l, l])];
+  if (!opts.some(([k]) => k === state.category)) state.category = "all";
+  for (const [key, text] of opts) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = text;
+    b.className = key === state.category ? "chip active" : "chip";
+    b.addEventListener("click", () => {
+      state.category = key;
+      render();
+    });
+    chips.append(b);
+  }
+}
+
+function renderTasteItem(i) {
+  const li = document.createElement("li");
+  li.className = "card taste-card";
+  const head = document.createElement("div");
+  head.className = "meta";
+  const kind = document.createElement("span");
+  kind.className = i.kind === "interest" ? "kind kind-interest" : "kind kind-broaden";
+  kind.textContent = i.kind === "interest" ? "관심 분야" : "시야 넓히기";
+  head.append(kind);
+  li.append(head);
+  const a = document.createElement("a");
+  a.className = "title";
+  a.href = i.url;
+  a.target = "_blank";
+  a.rel = "noopener";
+  a.textContent = i.title;
+  li.append(a);
+  const foot = document.createElement("div");
+  foot.className = "foot-meta";
+  foot.textContent = [i.outlet, kstDate(i.published_at)].filter(Boolean).join(" · ");
+  li.append(foot);
+  if (i.tags?.length) {
+    const tags = document.createElement("div");
+    tags.className = "tags";
+    for (const tg of i.tags) {
+      const s = document.createElement("span");
+      s.textContent = tg;
+      tags.append(s);
+    }
+    li.append(tags);
+  }
+  return li;
+}
+
+async function renderTaste() {
+  const t = await loadTaste();
+  if (state.tab !== "taste") return;
+  $("tabNote").textContent = tasteNote(t);
+  renderTasteChips(t);
+  const items = tasteFiltered(t);
+  const list = $("list");
+  list.replaceChildren(...items.map(renderTasteItem));
+  if (!items.length) {
+    const li = document.createElement("li");
+    li.className = "empty";
+    li.textContent = t?.items?.length ? "해당하는 글이 없습니다." : "기준을 넘는 글이 아직 없습니다.";
+    list.append(li);
+  }
+  $("more").hidden = true;
+}
 
 const state = {
   data: null,
@@ -231,6 +348,10 @@ function render() {
     const on = b.dataset.tab === state.tab;
     b.classList.toggle("active", on);
     b.setAttribute("aria-selected", on ? "true" : "false");
+  }
+  if (state.tab === "taste") {
+    renderTaste();
+    return;
   }
   let note = TAB_NOTES[state.tab];
   const sel = state.data.selection || {};

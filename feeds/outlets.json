@@ -8,63 +8,632 @@
   ],
   "outlets": {
     "연합뉴스": {
-      "aliases": ["Yonhap", "Yonhap News", "Yonhap News Agency", "연합뉴스(Yonhap)", "yna"],
-      "domains": ["yna.co.kr", "en.yna.co.kr"],
+      "aliases": [
+        "Yonhap",
+        "Yonhap News",
+        "Yonhap News Agency",
+        "연합뉴스(Yonhap)",
+        "yna"
+      ],
+      "domains": [
+        "yna.co.kr",
+        "en.yna.co.kr"
+      ],
       "ai": "deny",
       "evidence": "RSS <copyright>: 저작권자(c) 연합뉴스, 무단 전재-재배포, AI 학습 및 활용 금지",
       "checked": "2026-11-16"
     },
     "한겨레": {
-      "aliases": ["한겨레신문", "한겨레신문사", "Hankyoreh", "The Hankyoreh"],
-      "domains": ["hani.co.kr", "english.hani.co.kr"],
+      "aliases": [
+        "한겨레신문",
+        "한겨레신문사",
+        "Hankyoreh",
+        "The Hankyoreh"
+      ],
+      "domains": [
+        "hani.co.kr",
+        "english.hani.co.kr"
+      ],
       "ai": "deny",
       "evidence": "RSS <copyright>: © 한겨레신문사 All Rights Reserved. 무단 전재, 재배포, AI 학습 및 활용 금지",
       "checked": "2026-11-16"
     },
     "연합뉴스TV": {
-      "aliases": ["Yonhap News TV"],
-      "domains": ["yonhapnewstv.co.kr"],
+      "aliases": [
+        "Yonhap News TV"
+      ],
+      "domains": [
+        "yonhapnewstv.co.kr"
+      ],
       "ai": "unknown",
       "evidence": "연합뉴스와 별도 법인. 약관 미확인",
       "checked": "2026-11-16"
     },
-    "조선일보": {"aliases": ["Chosun Ilbo", "The Chosun Ilbo", "조선닷컴"], "domains": ["chosun.com", "biz.chosun.com"], "ai": "unknown", "evidence": "RSS 에 저작권 문구 없음. 약관 미확인", "checked": "2026-11-16"},
-    "중앙일보": {"aliases": ["JoongAng Ilbo", "Korea JoongAng Daily", "joongang"], "domains": ["joongang.co.kr"], "ai": "unknown", "evidence": "Google 뉴스 경유만 사용. 약관 미확인", "checked": "2026-11-16"},
-    "경향신문": {"aliases": ["Kyunghyang Shinmun", "경향"], "domains": ["khan.co.kr"], "ai": "unknown", "evidence": "RSS: Copyright (C)1996 Kyunghyang Shinmun, All right reserved. AI 관련 문구 없음", "checked": "2026-11-16"},
-    "한국경제": {"aliases": ["한경", "Korea Economic Daily", "The Korea Economic Daily", "한국경제신문"], "domains": ["hankyung.com"], "ai": "unknown", "evidence": "약관 미확인", "checked": "2026-11-16"},
-    "매일경제": {"aliases": ["매경", "Maeil Business", "Maeil Business Newspaper", "Pulse"], "domains": ["mk.co.kr"], "ai": "unknown", "evidence": "RSS: Copyright 2026 MK. AI 관련 문구 없음", "checked": "2026-11-16"},
-    "동아일보": {"aliases": ["Dong-A Ilbo", "The Dong-A Ilbo", "동아닷컴"], "domains": ["donga.com"], "ai": "unknown", "evidence": "약관 미확인", "checked": "2026-11-16"},
-    "SBS": {"aliases": ["SBS 뉴스", "SBS News"], "domains": ["news.sbs.co.kr", "sbs.co.kr"], "ai": "unknown", "evidence": "RSS 에 저작권 문구 없음. 약관 미확인", "checked": "2026-11-16"},
-    "MBC": {"aliases": ["MBC 뉴스", "MBC News", "iMBC"], "domains": ["imnews.imbc.com", "imbc.com"], "ai": "unknown", "evidence": "약관 미확인", "checked": "2026-11-16"},
-    "KBS": {"aliases": ["KBS 뉴스", "KBS News", "KBS WORLD"], "domains": ["news.kbs.co.kr", "kbs.co.kr"], "ai": "unknown", "evidence": "약관 미확인", "checked": "2026-11-16"},
-    "JTBC": {"aliases": ["JTBC 뉴스", "JTBC News"], "domains": ["news.jtbc.co.kr", "jtbc.co.kr", "news-ex.jtbc.co.kr"], "ai": "unknown", "evidence": "RSS: Copyright(C) JTBC All rights reserved. AI 관련 문구 없음", "checked": "2026-11-16"},
-    "BBC": {"aliases": ["BBC News", "BBC World"], "domains": ["bbc.co.uk", "bbc.com"], "ai": "unknown", "evidence": "RSS 가 이용약관(usingthebbc/terms-of-use) 링크. 미확인", "checked": "2026-11-16"},
-    "The Guardian": {"aliases": ["Guardian", "theguardian.com"], "domains": ["theguardian.com"], "ai": "unknown", "evidence": "약관 미확인", "checked": "2026-11-16"},
-    "New York Times": {"aliases": ["The New York Times", "NYT", "nytimes.com"], "domains": ["nytimes.com"], "ai": "unknown", "evidence": "약관 미확인", "checked": "2026-11-16"},
-    "Al Jazeera": {"aliases": ["Al Jazeera English", "aljazeera.com"], "domains": ["aljazeera.com"], "ai": "unknown", "evidence": "약관 미확인", "checked": "2026-11-16"},
-    "DW": {"aliases": ["Deutsche Welle", "DW.com"], "domains": ["dw.com"], "ai": "unknown", "evidence": "약관 미확인", "checked": "2026-11-16"},
-    "AP": {"aliases": ["AP News", "Associated Press", "The Associated Press"], "domains": ["apnews.com"], "ai": "unknown", "evidence": "약관 미확인", "checked": "2026-11-16"},
-    "Reuters": {"aliases": ["Reuters.com", "Thomson Reuters"], "domains": ["reuters.com"], "ai": "unknown", "evidence": "약관 미확인", "checked": "2026-11-16"},
-    "Nature": {"aliases": ["Nature.com"], "domains": ["nature.com"], "ai": "unknown", "evidence": "약관 미확인", "checked": "2026-11-16"},
-    "Science": {"aliases": ["Science Magazine", "AAAS", "Science News"], "domains": ["science.org"], "ai": "unknown", "evidence": "약관 미확인", "checked": "2026-11-16"},
-    "Cell": {"aliases": ["Cell Press"], "domains": ["cell.com"], "ai": "unknown", "evidence": "약관 미확인", "checked": "2026-11-16"},
-    "PNAS": {"aliases": ["Proceedings of the National Academy of Sciences"], "domains": ["pnas.org"], "ai": "unknown", "evidence": "약관 미확인", "checked": "2026-11-16"},
-    "Quanta": {"aliases": ["Quanta Magazine"], "domains": ["quantamagazine.org"], "ai": "unknown", "evidence": "약관 미확인", "checked": "2026-11-16"},
-    "ScienceDaily": {"aliases": ["Science Daily"], "domains": ["sciencedaily.com"], "ai": "unknown", "evidence": "약관 미확인", "checked": "2026-11-16"},
-    "IEEE Spectrum": {"aliases": ["IEEE"], "domains": ["spectrum.ieee.org"], "ai": "unknown", "evidence": "약관 미확인", "checked": "2026-11-16"},
-    "Nature Energy": {"aliases": [], "domains": [], "ai": "unknown", "evidence": "약관 미확인", "checked": "2026-11-16"},
-    "Nature Electronics": {"aliases": [], "domains": [], "ai": "unknown", "evidence": "약관 미확인", "checked": "2026-11-16"},
-    "Electrek": {"aliases": [], "domains": ["electrek.co"], "ai": "unknown", "evidence": "약관 미확인", "checked": "2026-11-16"},
-    "Utility Dive": {"aliases": [], "domains": ["utilitydive.com"], "ai": "unknown", "evidence": "약관 미확인", "checked": "2026-11-16"},
-    "전기신문": {"aliases": ["electimes"], "domains": ["electimes.com"], "ai": "unknown", "evidence": "RSS: Copyright (c) electimes.com All rights reserved. AI 관련 문구 없음", "checked": "2026-11-16"},
-    "에너지신문": {"aliases": [], "domains": ["energy-news.co.kr"], "ai": "unknown", "evidence": "약관 미확인", "checked": "2026-11-16"},
-    "일렉트릭파워": {"aliases": [], "domains": ["epj.co.kr"], "ai": "unknown", "evidence": "약관 미확인", "checked": "2026-11-16"},
-    "전기저널": {"aliases": ["대한전기협회"], "domains": ["keaj.kr"], "ai": "unknown", "evidence": "약관 미확인", "checked": "2026-11-16"},
-    "IEEE TPWRS": {"aliases": [], "domains": [], "ai": "unknown", "evidence": "비활성 소스", "checked": "2026-11-16"},
-    "IEEE TPEL": {"aliases": [], "domains": [], "ai": "unknown", "evidence": "비활성 소스", "checked": "2026-11-16"}
+    "조선일보": {
+      "aliases": [
+        "Chosun Ilbo",
+        "The Chosun Ilbo",
+        "조선닷컴"
+      ],
+      "domains": [
+        "chosun.com",
+        "biz.chosun.com"
+      ],
+      "ai": "unknown",
+      "evidence": "RSS 에 저작권 문구 없음. 약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "중앙일보": {
+      "aliases": [
+        "JoongAng Ilbo",
+        "Korea JoongAng Daily",
+        "joongang"
+      ],
+      "domains": [
+        "joongang.co.kr"
+      ],
+      "ai": "unknown",
+      "evidence": "Google 뉴스 경유만 사용. 약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "경향신문": {
+      "aliases": [
+        "Kyunghyang Shinmun",
+        "경향"
+      ],
+      "domains": [
+        "khan.co.kr"
+      ],
+      "ai": "unknown",
+      "evidence": "RSS: Copyright (C)1996 Kyunghyang Shinmun, All right reserved. AI 관련 문구 없음",
+      "checked": "2026-11-16"
+    },
+    "한국경제": {
+      "aliases": [
+        "한경",
+        "Korea Economic Daily",
+        "The Korea Economic Daily",
+        "한국경제신문"
+      ],
+      "domains": [
+        "hankyung.com"
+      ],
+      "ai": "unknown",
+      "evidence": "약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "매일경제": {
+      "aliases": [
+        "매경",
+        "Maeil Business",
+        "Maeil Business Newspaper",
+        "Pulse"
+      ],
+      "domains": [
+        "mk.co.kr"
+      ],
+      "ai": "unknown",
+      "evidence": "RSS: Copyright 2026 MK. AI 관련 문구 없음",
+      "checked": "2026-11-16"
+    },
+    "동아일보": {
+      "aliases": [
+        "Dong-A Ilbo",
+        "The Dong-A Ilbo",
+        "동아닷컴"
+      ],
+      "domains": [
+        "donga.com"
+      ],
+      "ai": "unknown",
+      "evidence": "약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "SBS": {
+      "aliases": [
+        "SBS 뉴스",
+        "SBS News"
+      ],
+      "domains": [
+        "news.sbs.co.kr",
+        "sbs.co.kr"
+      ],
+      "ai": "unknown",
+      "evidence": "RSS 에 저작권 문구 없음. 약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "MBC": {
+      "aliases": [
+        "MBC 뉴스",
+        "MBC News",
+        "iMBC"
+      ],
+      "domains": [
+        "imnews.imbc.com",
+        "imbc.com"
+      ],
+      "ai": "unknown",
+      "evidence": "약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "KBS": {
+      "aliases": [
+        "KBS 뉴스",
+        "KBS News",
+        "KBS WORLD"
+      ],
+      "domains": [
+        "news.kbs.co.kr",
+        "kbs.co.kr"
+      ],
+      "ai": "unknown",
+      "evidence": "약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "JTBC": {
+      "aliases": [
+        "JTBC 뉴스",
+        "JTBC News"
+      ],
+      "domains": [
+        "news.jtbc.co.kr",
+        "jtbc.co.kr",
+        "news-ex.jtbc.co.kr"
+      ],
+      "ai": "unknown",
+      "evidence": "RSS: Copyright(C) JTBC All rights reserved. AI 관련 문구 없음",
+      "checked": "2026-11-16"
+    },
+    "BBC": {
+      "aliases": [
+        "BBC News",
+        "BBC World"
+      ],
+      "domains": [
+        "bbc.co.uk",
+        "bbc.com"
+      ],
+      "ai": "unknown",
+      "evidence": "RSS 가 이용약관(usingthebbc/terms-of-use) 링크. 미확인",
+      "checked": "2026-11-16"
+    },
+    "The Guardian": {
+      "aliases": [
+        "Guardian",
+        "theguardian.com"
+      ],
+      "domains": [
+        "theguardian.com"
+      ],
+      "ai": "unknown",
+      "evidence": "약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "New York Times": {
+      "aliases": [
+        "The New York Times",
+        "NYT",
+        "nytimes.com"
+      ],
+      "domains": [
+        "nytimes.com"
+      ],
+      "ai": "unknown",
+      "evidence": "약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "Al Jazeera": {
+      "aliases": [
+        "Al Jazeera English",
+        "aljazeera.com"
+      ],
+      "domains": [
+        "aljazeera.com"
+      ],
+      "ai": "unknown",
+      "evidence": "약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "DW": {
+      "aliases": [
+        "Deutsche Welle",
+        "DW.com"
+      ],
+      "domains": [
+        "dw.com"
+      ],
+      "ai": "unknown",
+      "evidence": "약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "AP": {
+      "aliases": [
+        "AP News",
+        "Associated Press",
+        "The Associated Press"
+      ],
+      "domains": [
+        "apnews.com"
+      ],
+      "ai": "unknown",
+      "evidence": "약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "Reuters": {
+      "aliases": [
+        "Reuters.com",
+        "Thomson Reuters"
+      ],
+      "domains": [
+        "reuters.com"
+      ],
+      "ai": "unknown",
+      "evidence": "약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "Nature": {
+      "aliases": [
+        "Nature.com"
+      ],
+      "domains": [
+        "nature.com"
+      ],
+      "ai": "unknown",
+      "evidence": "약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "Science": {
+      "aliases": [
+        "Science Magazine",
+        "AAAS",
+        "Science News"
+      ],
+      "domains": [
+        "science.org"
+      ],
+      "ai": "unknown",
+      "evidence": "약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "Cell": {
+      "aliases": [
+        "Cell Press"
+      ],
+      "domains": [
+        "cell.com"
+      ],
+      "ai": "unknown",
+      "evidence": "약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "PNAS": {
+      "aliases": [
+        "Proceedings of the National Academy of Sciences"
+      ],
+      "domains": [
+        "pnas.org"
+      ],
+      "ai": "unknown",
+      "evidence": "약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "Quanta": {
+      "aliases": [
+        "Quanta Magazine"
+      ],
+      "domains": [
+        "quantamagazine.org"
+      ],
+      "ai": "unknown",
+      "evidence": "약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "ScienceDaily": {
+      "aliases": [
+        "Science Daily"
+      ],
+      "domains": [
+        "sciencedaily.com"
+      ],
+      "ai": "unknown",
+      "evidence": "약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "IEEE Spectrum": {
+      "aliases": [
+        "IEEE"
+      ],
+      "domains": [
+        "spectrum.ieee.org"
+      ],
+      "ai": "unknown",
+      "evidence": "약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "Nature Energy": {
+      "aliases": [],
+      "domains": [],
+      "ai": "unknown",
+      "evidence": "약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "Nature Electronics": {
+      "aliases": [],
+      "domains": [],
+      "ai": "unknown",
+      "evidence": "약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "Electrek": {
+      "aliases": [],
+      "domains": [
+        "electrek.co"
+      ],
+      "ai": "unknown",
+      "evidence": "약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "Utility Dive": {
+      "aliases": [],
+      "domains": [
+        "utilitydive.com"
+      ],
+      "ai": "unknown",
+      "evidence": "약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "전기신문": {
+      "aliases": [
+        "electimes"
+      ],
+      "domains": [
+        "electimes.com"
+      ],
+      "ai": "unknown",
+      "evidence": "RSS: Copyright (c) electimes.com All rights reserved. AI 관련 문구 없음",
+      "checked": "2026-11-16"
+    },
+    "에너지신문": {
+      "aliases": [],
+      "domains": [
+        "energy-news.co.kr"
+      ],
+      "ai": "unknown",
+      "evidence": "약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "일렉트릭파워": {
+      "aliases": [],
+      "domains": [
+        "epj.co.kr"
+      ],
+      "ai": "unknown",
+      "evidence": "약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "전기저널": {
+      "aliases": [
+        "대한전기협회"
+      ],
+      "domains": [
+        "keaj.kr"
+      ],
+      "ai": "unknown",
+      "evidence": "약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "IEEE TPWRS": {
+      "aliases": [],
+      "domains": [],
+      "ai": "unknown",
+      "evidence": "비활성 소스",
+      "checked": "2026-11-16"
+    },
+    "IEEE TPEL": {
+      "aliases": [],
+      "domains": [],
+      "ai": "unknown",
+      "evidence": "비활성 소스",
+      "checked": "2026-11-16"
+    },
+    "MIT Technology Review": {
+      "aliases": [],
+      "domains": [
+        "technologyreview.com"
+      ],
+      "ai": "unknown",
+      "evidence": "취향 탭 후보 전용 피드. 약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "Data Center Dynamics": {
+      "aliases": [],
+      "domains": [
+        "datacenterdynamics.com"
+      ],
+      "ai": "unknown",
+      "evidence": "취향 탭 후보 전용 피드. 약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "SemiEngineering": {
+      "aliases": [],
+      "domains": [
+        "semiengineering.com"
+      ],
+      "ai": "unknown",
+      "evidence": "취향 탭 후보 전용 피드. 약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "디일렉": {
+      "aliases": [],
+      "domains": [
+        "thelec.kr"
+      ],
+      "ai": "unknown",
+      "evidence": "취향 탭 후보 전용 피드. 약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "Liberty Street Economics": {
+      "aliases": [],
+      "domains": [
+        "libertystreeteconomics.newyorkfed.org"
+      ],
+      "ai": "unknown",
+      "evidence": "취향 탭 후보 전용 피드. 약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "VoxEU": {
+      "aliases": [],
+      "domains": [
+        "cepr.org"
+      ],
+      "ai": "unknown",
+      "evidence": "취향 탭 후보 전용 피드. 약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "Bruegel": {
+      "aliases": [],
+      "domains": [
+        "bruegel.org"
+      ],
+      "ai": "unknown",
+      "evidence": "취향 탭 후보 전용 피드. 약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "BIS": {
+      "aliases": [],
+      "domains": [
+        "bis.org"
+      ],
+      "ai": "unknown",
+      "evidence": "취향 탭 후보 전용 피드. 약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "Ethereum Foundation": {
+      "aliases": [],
+      "domains": [
+        "blog.ethereum.org"
+      ],
+      "ai": "unknown",
+      "evidence": "취향 탭 후보 전용 피드. 약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "Bitcoin Optech": {
+      "aliases": [],
+      "domains": [
+        "bitcoinops.org"
+      ],
+      "ai": "unknown",
+      "evidence": "취향 탭 후보 전용 피드. 약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "Vitalik Buterin": {
+      "aliases": [],
+      "domains": [
+        "vitalik.eth.limo",
+        "vitalik.ca"
+      ],
+      "ai": "unknown",
+      "evidence": "취향 탭 후보 전용 피드. 약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "CoinDesk": {
+      "aliases": [],
+      "domains": [
+        "coindesk.com"
+      ],
+      "ai": "unknown",
+      "evidence": "취향 탭 후보 전용 피드. 약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "Aeon": {
+      "aliases": [],
+      "domains": [
+        "aeon.co"
+      ],
+      "ai": "unknown",
+      "evidence": "취향 탭 후보 전용 피드. 약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "Noema": {
+      "aliases": [],
+      "domains": [
+        "noemamag.com"
+      ],
+      "ai": "unknown",
+      "evidence": "취향 탭 후보 전용 피드. 약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "Psyche": {
+      "aliases": [],
+      "domains": [
+        "psyche.co"
+      ],
+      "ai": "unknown",
+      "evidence": "취향 탭 후보 전용 피드. 약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "The Conversation": {
+      "aliases": [],
+      "domains": [
+        "theconversation.com"
+      ],
+      "ai": "unknown",
+      "evidence": "취향 탭 후보 전용 피드. 약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "Dezeen": {
+      "aliases": [],
+      "domains": [
+        "dezeen.com"
+      ],
+      "ai": "unknown",
+      "evidence": "취향 탭 후보 전용 피드. 약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "War on the Rocks": {
+      "aliases": [],
+      "domains": [
+        "warontherocks.com"
+      ],
+      "ai": "unknown",
+      "evidence": "취향 탭 후보 전용 피드. 약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "Crisis Group": {
+      "aliases": [],
+      "domains": [
+        "crisisgroup.org"
+      ],
+      "ai": "unknown",
+      "evidence": "취향 탭 후보 전용 피드. 약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "시사IN": {
+      "aliases": [],
+      "domains": [
+        "sisain.co.kr"
+      ],
+      "ai": "unknown",
+      "evidence": "취향 탭 후보 전용 피드. 약관 미확인",
+      "checked": "2026-11-16"
+    },
+    "한겨레21": {
+      "aliases": [
+        "Hankyoreh21"
+      ],
+      "domains": [
+        "h21.hani.co.kr"
+      ],
+      "ai": "deny",
+      "evidence": "한겨레신문사 발행. 한겨레 RSS 의 'AI 학습 및 활용 금지' 문구를 준용(별도 확인 필요)",
+      "checked": "2026-11-16"
+    }
   },
   "via": {
-    "direct": {"ai": "allow", "evidence": "언론사 RSS 직접 수집. 판단은 언론사 정책을 따른다"},
+    "direct": {
+      "ai": "allow",
+      "evidence": "언론사 RSS 직접 수집. 판단은 언론사 정책을 따른다"
+    },
     "google_news": {
       "ai": "unknown",
       "evidence": "Google 뉴스 RSS <copyright>: made available solely for the purpose of rendering Google News results within a personal feed reader for personal, non-commercial use",
