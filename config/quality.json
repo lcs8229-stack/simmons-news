@@ -4,7 +4,9 @@
     "warn 은 배포는 하되 health.json·화면 하단에 경고로 남긴다.",
     "*_vs_baseline 항목은 직전 정상 배포본(baseline)이 있을 때만 검사한다. 첫 실행은 절대 기준만 쓴다.",
     "candidates = 순위 후보 사건 수(저가치 제외). 주요 뉴스 할당(국내 24 / 해외 16)을 채우고도 남아야 한다.",
-    "2026-11-16 실측: 정상 소스 51~52/52, 뉴스 기사 약 1,700건, 국내 후보 약 1,100, 해외 후보 약 250."
+    "2026-11-16 실측: 정상 소스 51~52/52, 뉴스 기사 약 1,700건, 국내 후보 약 1,100, 해외 후보 약 250.",
+    "min_region_ok_ratio: 주요 뉴스 소스를 언론사 소재(국내/해외)별로 나눠 본 정상 비율. 활성 소스가 region_min_active 미만이면 검사하지 않는다.",
+    "*_vs_baseline 의 기준값은 최근 7일 정상 실행 3회 이상이면 항목별 중앙값, 아니면 직전 정상 실행 1회."
   ],
   "fail": {
     "min_ok_sources": 12,
@@ -14,12 +16,15 @@
     "min_intl_candidates": 30,
     "min_top_fill_ratio": 0.75,
     "max_news_drop_vs_baseline": 0.6,
-    "max_region_drop_vs_baseline": 0.7
+    "max_region_drop_vs_baseline": 0.7,
+    "min_region_ok_ratio": 0.3,
+    "region_min_active": 3
   },
   "warn": {
     "min_ok_ratio": 0.85,
     "max_news_drop_vs_baseline": 0.3,
-    "max_consecutive_failures": 6
+    "max_consecutive_failures": 6,
+    "min_region_ok_ratio": 0.7
   },
   "cadence_hours": {
     "frequent": 12,

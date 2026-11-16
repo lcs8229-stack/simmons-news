@@ -2,6 +2,11 @@ name: Update and deploy
 
 on:
   workflow_dispatch:
+    inputs:
+      simulate_cache_loss:
+        description: "캐시를 쓰지 않고 스냅샷에서 복구하는 경로를 시험 (docs/OPERATIONS.md 4절)"
+        type: boolean
+        default: false
   schedule:
     # 매시 17분(UTC)에 실행. 정각은 GitHub 서버가 붐벼 지연되기 쉽다.
     - cron: "17 * * * *"
@@ -12,6 +17,7 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  actions: read # 스냅샷 artifact 목록 조회·내려받기
 
 concurrency:
   group: pages
@@ -43,6 +49,7 @@ jobs:
       # 캐시가 없으면(7일 미사용 삭제 등) 새로 수집해 복구한다. docs/OPERATIONS.md 참고.
       # 캐시는 저장 경로 목록이 바뀌면 이전 것을 못 찾으므로, 아카이브와 이력을 따로 둔다.
       - name: Restore archive
+        if: ${{ !inputs.simulate_cache_loss }}
         uses: actions/cache/restore@v4
         with:
           path: data/archive.json
@@ -50,11 +57,25 @@ jobs:
           restore-keys: archive-
 
       - name: Restore source history and quality baseline
+        if: ${{ !inputs.simulate_cache_loss }}
         uses: actions/cache/restore@v4
         with:
           path: data/state
           key: state-${{ github.run_id }}
           restore-keys: state-
+
+      # 캐시가 없으면 가장 최근 스냅샷(품질 검사를 통과한 실행이 올린 artifact)에서 복구한다.
+      # 무결성(sha256)이 맞지 않으면 복구하지 않고 새로 수집한다. 결과는 news.json coverage.restored_from.
+      - name: Restore from snapshot if cache is missing
+        if: ${{ hashFiles('data/archive.json') == '' || hashFiles('data/state/theme_candidates.json') == '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          url=$(gh api "repos/${{ github.repository }}/actions/artifacts?name=state-snapshot&per_page=10" \
+            --jq '[.artifacts[] | select(.expired == false)][0].archive_download_url // empty' || true)
+          if [ -z "$url" ]; then echo "사용할 스냅샷 없음: 새로 수집합니다"; exit 0; fi
+          gh api "$url" > snapshot.zip && mkdir -p snapshot && unzip -q snapshot.zip -d snapshot
+          python scripts/state_snapshot.py restore --snapshot snapshot --data-dir data || echo "스냅샷 검증 실패: 새로 수집합니다"
 
       - name: Build news data
         id: build
@@ -79,6 +100,29 @@ jobs:
         with:
           path: data/state
           key: state-${{ github.run_id }}
+
+      # 품질 검사를 통과한 상태를 스냅샷으로 따로 보관 (Actions 캐시와 별개, 30일).
+      # 매일 UTC 0시대 실행, 수동·push 실행, 스냅샷에서 복구한 실행에서 올린다.
+      - name: Decide snapshot
+        id: snapdue
+        run: |
+          due=false
+          if [ "${{ github.event_name }}" != "schedule" ] || [ "$(date -u +%H)" = "00" ]; then due=true; fi
+          if [ -n "$(ls snapshot 2>/dev/null)" ]; then due=true; fi
+          echo "due=$due" >> "$GITHUB_OUTPUT"
+
+      - name: Create snapshot
+        if: steps.snapdue.outputs.due == 'true'
+        run: python scripts/state_snapshot.py create --data-dir data --out state-snapshot
+
+      - name: Upload snapshot
+        if: steps.snapdue.outputs.due == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: state-snapshot
+          path: state-snapshot
+          retention-days: 30
+          if-no-files-found: error
 
       - name: Assemble site
         run: |

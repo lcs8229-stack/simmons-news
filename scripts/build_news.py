@@ -1038,6 +1038,62 @@ def public_article(m: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# ---------------------------------------------------------------- 같은 보도 계열 (전재·재게시)
+#
+# 여러 언론사가 거의 같은 제목으로 낸 기사는 통신사 전재나 같은 보도자료일 가능성이 높다.
+# 이런 언론사들은 '같은 보도 계열'로 묶어 점수에서 1곳으로 센다.
+# 전재 여부를 확정할 수는 없으므로 '독립 취재'라고 표시하지 않고, 점수 계산에만 쓴다.
+# 화면의 "N개 언론" 은 실제 보도한 언론사 수 그대로 둔다.
+
+COPY_TITLE_PREFIX_RE = re.compile(r"^\s*(?:\[[^\]]{0,12}\]\s*)+")
+COPY_TITLE_SUFFIX_RE = re.compile(r"\((?:종합|종합\d보|\d보|속보|단독|영상|사진|포토)\)")
+
+
+def copy_key(title: str) -> str:
+    t = unicodedata.normalize("NFKC", title or "")
+    t = COPY_TITLE_PREFIX_RE.sub("", t)
+    t = COPY_TITLE_SUFFIX_RE.sub("", t)
+    return re.sub(r"[^0-9a-z가-힣\u4e00-\u9fff]", "", t.lower())
+
+
+def report_lineages(members: list[dict[str, Any]]) -> list[list[str]]:
+    """언론사를 '같은 보도 계열'로 묶는다.
+
+    같은 계열: 머리표([속보] 등)·꼬리표((종합) 등)·문장부호를 뺀 제목이 완전히 같거나,
+    RSS 요약 첫 80자가 완전히 같은 경우. 같은 발표를 각자 고쳐 쓴 비슷한 제목은 묶지 않는다
+    (같은 발표를 다룬 제목은 자연스럽게 비슷해서, 겹침 비율로는 전재와 구분되지 않는다).
+    """
+    outlets = sorted({m["outlet"] for m in members})
+    owner: dict[tuple[str, str], str] = {}
+    parent = {o: o for o in outlets}
+
+    def find(o: str) -> str:
+        while parent[o] != o:
+            parent[o] = parent[parent[o]]
+            o = parent[o]
+        return o
+
+    for m in members:
+        keys = []
+        k = copy_key(m["title"])
+        if len(k) >= 10:
+            keys.append(("title", k))
+        summ = re.sub(r"\s+", "", unicodedata.normalize("NFKC", m.get("summary") or ""))[:80]
+        if len(summ) >= 40:
+            keys.append(("summary", summ))
+        for key in keys:
+            if key in owner:
+                ra, rb = find(owner[key]), find(m["outlet"])
+                if ra != rb:
+                    parent[max(ra, rb)] = min(ra, rb)
+            else:
+                owner[key] = m["outlet"]
+    groups: dict[str, list[str]] = defaultdict(list)
+    for o in outlets:
+        groups[find(o)].append(o)
+    return sorted(groups.values(), key=lambda g: (-len(g), g))
+
+
 def provisional_story_id(members: list[dict[str, Any]]) -> str:
     """대장(registry)에 기록이 없을 때 쓰는 사건 ID: 최초(seed) 기사 ID 에서 만든다."""
     seed = min(members, key=lambda m: (article_time(m) or datetime.max.replace(tzinfo=UTC), m.get("id", "")))
@@ -1058,8 +1114,9 @@ def build_story(members: list[dict[str, Any]], now: datetime) -> dict[str, Any]:
         recency = math.pow(0.5, age_h / HALF_LIFE_HOURS)
     else:
         recency = 0.0  # 시각 미상 사건은 최신성 가산 없음
-    # 보도 언론사 수가 핵심 신호. 로그로 눌러 초대형 이슈가 전부를 덮지 않게 한다.
-    score = (1.0 + 2.2 * math.log2(len(outlets))) * (0.35 + 0.65 * recency)
+    # 보도 신호: 같은 보도 계열(전재·재게시 추정)은 1곳으로 센 '보도 계열 수'. 로그로 눌러 초대형 이슈가 덮지 않게 한다.
+    lineages = report_lineages(members)
+    score = (1.0 + 2.2 * math.log2(len(lineages))) * (0.35 + 0.65 * recency)
     leans = sorted({m.get("lean") for m in members if m.get("lean")})
     rep_time = article_time(rep)
     source_regions = {m["region"] for m in members}
@@ -1088,6 +1145,9 @@ def build_story(members: list[dict[str, Any]], now: datetime) -> dict[str, Any]:
         "first_reported_at": iso(earliest),
         "span_hours": round((latest - earliest).total_seconds() / 3600, 2) if times else None,
         "outlet_count": len(outlets),
+        # 점수에 쓰는 보도 계열 수. 거의 같은 제목을 낸 언론사 묶음은 1로 센다 (추정, 독립 취재 판정 아님).
+        "report_lineage_count": len(lineages),
+        "copy_groups": [g for g in lineages if len(g) > 1],
         "article_count": len(members),
         "undated_article_count": sum(1 for m in members if not article_time(m)),
         "leans": leans,
@@ -1356,6 +1416,18 @@ def summarize_sources(statuses: list[dict[str, Any]]) -> dict[str, Any]:
         "stale": [s["name"] for s in active if s["state"] == "stale"],
         "undated": [s["name"] for s in active if s["state"] == "undated"],
         "disabled": [s["name"] for s in statuses if s["state"] == "disabled"],
+        # 주요 뉴스용 소스(section=news)의 언론사 소재별 정상 비율.
+        # 해외 언론이 모두 실패해도 국내 언론의 국제 기사가 해외 할당을 채워 전체 수치로는 드러나지 않으므로 따로 본다.
+        "by_region": {
+            region: {
+                "active": sum(1 for s in active if s.get("section") == "news" and s.get("region") == region),
+                "ok": sum(
+                    1 for s in active
+                    if s.get("section") == "news" and s.get("region") == region and s["state"] in GOOD_STATES
+                ),
+            }
+            for region in ("kr", "intl")
+        },
     }
 
 
@@ -1544,7 +1616,20 @@ def main() -> int:
             st["history"] = update_history(history.get(st["url"]), st, now_iso)
         st.pop("newest_at_dt", None)
 
+    # 이번 실행의 기록이 어디서 왔는지: 캐시 / 스냅샷(state_snapshot.py restore) / 없음(새로 시작)
+    restore_info_path = state_dir / "restore_info.json"
+    restore_info: dict[str, Any] = {}
+    if restore_info_path.exists():
+        try:
+            restore_info = json.loads(restore_info_path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            restore_info = {}
+        restore_info_path.unlink()  # 다음 실행이 같은 정보를 다시 보고하지 않게
     cache_restored = archive_path.exists()
+    if "archive.json" in (restore_info.get("restored_files") or []):
+        restored_from = "snapshot"
+    else:
+        restored_from = "cache" if cache_restored else "none"
     started_at = archive_started_at(archive_path) if cache_restored else None
     archive = load_archive(archive_path, table)
     if not started_at:
@@ -1577,6 +1662,10 @@ def main() -> int:
         "coverage": {
             "archive_started_at": started_at,
             "cache_restored": cache_restored,
+            # cache: 캐시에서 이어받음 / snapshot: 캐시가 없어 스냅샷에서 복구 / none: 새로 시작
+            "restored_from": restored_from,
+            "snapshot_created_at": restore_info.get("snapshot_created_at"),
+            "snapshot_problems": restore_info.get("problems") or [],
             "source_history_from": history_source,
         },
         # 주요 뉴스로 뽑힌 사건은 600건 제한과 관계없이 항상 포함한다
@@ -1601,6 +1690,10 @@ def main() -> int:
             "kr_candidates": sum(1 for s in visible_news if s["region"] == "kr"),
             "intl_candidates": sum(1 for s in visible_news if s["region"] == "intl"),
             "sources_active": src_summary["active"],
+            "sources_ok_kr": src_summary["by_region"]["kr"]["ok"],
+            "sources_active_kr": src_summary["by_region"]["kr"]["active"],
+            "sources_ok_intl": src_summary["by_region"]["intl"]["ok"],
+            "sources_active_intl": src_summary["by_region"]["intl"]["active"],
             "sources_ok": src_summary["ok"],
             "undated_seen": len(news_undated) + len(sci_undated),
             "undated_attached": len(news_undated) + len(sci_undated) - len(undated_left),
@@ -1647,7 +1740,7 @@ def main() -> int:
     for key in ("failed", "empty", "stale", "disabled"):
         if src_summary[key]:
             print(f"{key}:", ", ".join(src_summary[key]))
-    print(f"archive since {started_at} (cache restored: {cache_restored}, source history: {history_source}, story registry: {registry_from})")
+    print(f"archive since {started_at} (restored from: {restored_from}, source history: {history_source}, story registry: {registry_from})")
     print(f"theme {theme_summary}")
     print(f"stories ids {out['id_stats']} | merge blocked {out['cluster_stats']} | issues {len(out['issues'])} | selection " +
           json.dumps({k: (v['selected'], v['quota'], v['reason']) for k, v in out['selection'].items()}, ensure_ascii=False))

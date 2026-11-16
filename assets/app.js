@@ -39,6 +39,11 @@ function themeNote(t) {
   const comp = t.composition || {};
   let note = `주제 ${kinds.topic}/${comp.topic ?? "-"} · 시야 넓히기 ${kinds.broaden}/${comp.broaden ?? "-"}`;
   if (c.oldest_candidate) note += ` · 후보 기간 ${kstDate(c.oldest_candidate)}~ (최근 ${c.window_days}일 기준)`;
+  // 후보 보관을 시작한 지 기준 기간이 안 됐으면 '재구축 중'으로 알린다 (피드에서 이미 빠진 과거 글은 없음)
+  if (c.store_started_at && c.window_days) {
+    const days = (Date.now() - new Date(c.store_started_at).getTime()) / 86400000;
+    if (days < c.window_days) note += ` · 후보 보관 ${Math.max(1, Math.floor(days))}일째(재구축 중)`;
+  }
   const short = Object.values(t.topics || {}).filter((x) => x.short).map((x) => x.label);
   if (short.length) note += ` · 후보 부족: ${short.join(", ")}`;
   return note;
@@ -459,6 +464,8 @@ function renderCoverage(d) {
   const c = d.coverage || {};
   let text = `마지막 정상 갱신 ${kstTime(d.generated_at)}`;
   if (c.archive_started_at) text += ` · 기록 보관 시작 ${kstTime(c.archive_started_at)}`;
+  if (c.restored_from === "snapshot") text += ` · 캐시 유실로 ${kstTime(c.snapshot_created_at)} 스냅샷에서 복구`;
+  if (c.restored_from === "none") text += " · 이전 기록 없이 새로 수집";
   $("lastGood").textContent = text;
 }
 
