@@ -356,6 +356,7 @@ main {
 }
 
 .stale-banner {
+  cursor: pointer;
   max-width: 760px;
   margin: 12px auto 0;
   padding: 10px 14px;

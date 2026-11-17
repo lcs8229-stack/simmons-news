@@ -452,11 +452,41 @@ function checkStale() {
   const banner = $("staleBanner");
   if (age > limit) {
     banner.hidden = false;
-    banner.textContent = `갱신 지연: 마지막 정상 갱신 ${kstTime(d.generated_at)} (${timeAgo(d.generated_at)}). 자동 갱신이 멈췄을 수 있습니다.`;
+    banner.textContent = `갱신 지연: 마지막 정상 갱신 ${kstTime(d.generated_at)} (${timeAgo(d.generated_at)}). 자동 갱신이 멈췄을 수 있습니다. 누르면 새로고침합니다.`;
     $("updatedAt").classList.add("late");
   } else {
     banner.hidden = true;
     $("updatedAt").classList.remove("late");
+  }
+}
+
+// 홈 화면 앱·브라우저 탭으로 돌아왔을 때 멈춰 있던 예전 화면을 그대로 보여주는 문제 대응.
+// 서버의 작은 health.json(마지막 정상 갱신 시각)과 지금 화면의 데이터 시각이 다르면 페이지 전체를 다시 불러온다.
+// 페이지를 다시 불러오므로 화면 코드(app.js)도 최신으로 바뀐다. 서버 자체가 멈춘 경우엔 시각이 같아 다시 불러오지 않는다.
+let lastServerCheck = 0;
+
+function reloadOnce() {
+  try {
+    const last = Number(sessionStorage.getItem("reloadedAt") || 0);
+    if (Date.now() - last < 120000) return; // 2분 안에 반복해서 다시 불러오지 않는다
+    sessionStorage.setItem("reloadedAt", String(Date.now()));
+  } catch (_) {
+    /* 저장소를 못 쓰면 그냥 진행 */
+  }
+  location.reload();
+}
+
+async function checkForNewData(force = false) {
+  if (!state.data || document.visibilityState === "hidden") return;
+  if (!force && Date.now() - lastServerCheck < 60000) return;
+  lastServerCheck = Date.now();
+  try {
+    const res = await fetch(`./data/health.json?t=${Date.now()}`, { cache: "no-store" });
+    if (!res.ok) return;
+    const h = await res.json();
+    if (h.passed && h.checked_at && h.checked_at !== state.data.generated_at) reloadOnce();
+  } catch (_) {
+    /* 오프라인 등: 다음 확인 때 다시 시도 */
   }
 }
 
@@ -497,7 +527,7 @@ async function init() {
   });
 
   try {
-    const res = await fetch(`./data/news.json?t=${Date.now()}`);
+    const res = await fetch(`./data/news.json?t=${Date.now()}`, { cache: "no-store" });
     if (!res.ok) throw new Error(res.status);
     state.data = await res.json();
     $("updatedAt").textContent = `${kstTime(state.data.generated_at)} 업데이트`;
@@ -506,6 +536,21 @@ async function init() {
     checkStale();
     // 페이지를 오래 열어 둔 경우에도 지연을 알 수 있게 1분마다 다시 확인
     setInterval(checkStale, 60000);
+    // 열어 둔 동안 10분마다, 그리고 앱·탭으로 돌아올 때마다 새 데이터 확인
+    setInterval(() => checkForNewData(true), 600000);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") {
+        checkStale();
+        checkForNewData();
+      }
+    });
+    window.addEventListener("pageshow", (e) => {
+      if (e.persisted) {
+        checkStale();
+        checkForNewData(true);
+      }
+    });
+    $("staleBanner").addEventListener("click", () => location.reload());
   } catch (err) {
     $("updatedAt").textContent = "불러오기 실패";
     $("list").innerHTML = '<li class="empty">뉴스 데이터를 불러오지 못했습니다.</li>';
